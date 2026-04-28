@@ -1,0 +1,6 @@
+title = "rag-on-azure gitleaks config"
+
+# Use the upstream gitleaks default ruleset; project-specific allowlists
+# can be added below as the codebase grows.
+[extend]
+useDefault = true

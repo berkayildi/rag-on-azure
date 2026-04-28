@@ -59,7 +59,7 @@ azd down --purge --force-delete
 
 ## Security non-negotiables
 
-- Personal email addresses, real subscription IDs, real tenant GUIDs **never** appear in code, docs, or commit messages
+- Personal email addresses, real subscription IDs, and real tenant GUIDs **never** appear in tracked file contents (code, docs, configs) or commit message bodies. Git author metadata is exempt — `user.email` is standard git plumbing.
 - Pre-commit `gitleaks` hook must pass before any commit
 - `.env*` files are gitignored; only `.env.example` (shape-only, no values) is committed
 - Local dev uses `az login` against the user's identity — never a key
