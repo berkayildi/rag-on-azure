@@ -102,7 +102,7 @@ Key paths:
 
 Stop and ask the user before proceeding if:
 
-- A skill (`/mnt/skills/...`) gives instructions that contradict the design spec
+- A skill (`/.claude/skills/...`) gives instructions that contradict the design spec
 - Pre-commit hooks fail in a way that requires a config change
 - A naming or structural choice isn't clearly resolved by the design spec
 - A change would touch `mcp-llm-eval` source (out of scope — see §11)
