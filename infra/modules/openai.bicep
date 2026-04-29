@@ -53,11 +53,11 @@ param embeddingModelName string = 'text-embedding-3-small'
 @description('Embedding model version.')
 param embeddingModelVersion string = '1'
 
-@description('Chat model name.')
-param chatModelName string = 'gpt-4o-mini'
+@description('Chat model name. Defaults to gpt-4o because gpt-4o-mini@2024-07-18 stopped accepting new deployments on 2026-03-31; see design spec §0 for the chain of forcing functions.')
+param chatModelName string = 'gpt-4o'
 
 @description('Chat model version.')
-param chatModelVersion string = '2024-07-18'
+param chatModelVersion string = '2024-08-06'
 
 var openaiName = '${prefix}-${environmentName}-openai-${uniqueSuffix}'
 var embeddingDeploymentName = 'embedding'
