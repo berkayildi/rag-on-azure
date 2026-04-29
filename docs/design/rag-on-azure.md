@@ -13,7 +13,7 @@ Before any code is written, the Azure subscription must be in a usable state.
 
 - [ ] Active Azure subscription with payment method on file
 - [ ] Confirm Azure OpenAI access is enabled on the subscription. New subscriptions historically required an access request form; verify via portal whether the current subscription needs one and submit if so.
-- [ ] Pick the deployment region. **UK South** is the default for this repo because (a) it offers UK data residency, (b) it has Azure OpenAI capacity for `gpt-4o-mini` and `text-embedding-3-small`, (c) it has Azure AI Search Free tier, (d) it has Container Apps. Confirm regional availability of all three model+service combinations before committing infra.
+- [ ] Pick the deployment region. **Sweden Central** is the default for this repo. As of April 2026, new Azure subscriptions had zero default OpenAI quota in UK South (the original target), and `text-embedding-3-small` was not offered on regional `Standard` SKU in Sweden Central either. The deployment therefore uses mixed SKUs to stay inside the EU: `gpt-4o-mini` on regional `Standard` (chat inference fully within Sweden Central), `text-embedding-3-small` on `DataZoneStandard` (embedding inference within the EU data zone). Both deployments keep data inside the EU. UK South with uniform `Standard` remains the long-term target if quota is granted there. Confirm regional availability **and** quota of all three model+service combinations before committing infra.
 - [ ] Install local toolchain: `az` CLI ≥ 2.60, `azd` (Azure Developer CLI) ≥ 1.10, Bicep ≥ 0.27, Python 3.12, Docker, `gitleaks`.
 - [ ] `az login` — confirm Azure CLI is authenticated against the right tenant.
 - [ ] Run `az deployment group what-if` against an empty resource group to verify the auth path before writing real Bicep.
@@ -98,6 +98,7 @@ rag-on-azure/
 ### 2.1 `main.bicep`
 
 - Resource group scope, parameter inputs: `location`, `environmentName` (`dev` | `prod`), `tenantSeedIds` (string array)
+- `location` defaults to `swedencentral` (see §0); override per environment via parameters file
 - Outputs: `containerAppFqdn`, `searchEndpoint`, `openaiEndpoint`, `keyVaultName`
 - Wires modules in order: monitor → keyvault → search → openai → containerapp
 
@@ -112,9 +113,9 @@ rag-on-azure/
 ### 2.3 `modules/openai.bicep`
 
 - Cognitive Services account, kind `OpenAI`, SKU `S0`
-- Two model deployments:
-  - `embedding`: `text-embedding-3-small`, capacity 30 (30k TPM)
-  - `chat`: `gpt-4o-mini`, capacity 50 (50k TPM)
+- Two model deployments (mixed deployment SKUs forced by Sweden Central availability — see §0; the split is not a design preference):
+  - `embedding`: `text-embedding-3-small`, deployment SKU `DataZoneStandard`, capacity 30 (30k TPM)
+  - `chat`: `gpt-4o-mini`, deployment SKU `Standard`, capacity 50 (50k TPM)
 - Public network access enabled for dev; documented as private endpoint in prod
 - Output: `openaiEndpoint`, deployment names
 
