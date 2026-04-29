@@ -3,6 +3,11 @@ name: rag-on-azure
 metadata:
   template: rag-on-azure@0.0.1
 
+infra:
+  provider: bicep
+  path: infra
+  module: main
+
 services:
   app:
     project: ./app

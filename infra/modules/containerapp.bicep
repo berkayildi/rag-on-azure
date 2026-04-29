@@ -115,7 +115,9 @@ resource managedEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
   location: location
-  tags: tags
+  tags: union(tags, {
+    'azd-service-name': 'app'
+  })
   identity: {
     type: 'SystemAssigned'
   }
