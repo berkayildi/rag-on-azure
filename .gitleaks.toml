@@ -4,3 +4,17 @@ title = "rag-on-azure gitleaks config"
 # can be added below as the codebase grows.
 [extend]
 useDefault = true
+
+# Azure built-in RBAC role definition GUIDs are public, documented at
+# learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles
+# Their high entropy trips the generic-api-key rule; allowlist by exact
+# GUID, scoped to the infra tree only.
+[allowlist]
+description = "Azure built-in RBAC role definition GUIDs"
+paths = ['''infra/.*\.bicep''']
+regexes = [
+  '''5e0bd9bd-7b93-4f28-af87-19fc36ad61bd''',
+  '''1407120a-92aa-4202-b7e9-c0e197c71c8f''',
+  '''8ebe5a00-799e-43f5-93ac-243d3dce84a7''',
+  '''4633458b-17de-408a-b874-0445c86b69e6''',
+]
