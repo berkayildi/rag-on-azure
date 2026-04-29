@@ -13,7 +13,7 @@ Before any code is written, the Azure subscription must be in a usable state.
 
 - [ ] Active Azure subscription with payment method on file
 - [ ] Confirm Azure OpenAI access is enabled on the subscription. New subscriptions historically required an access request form; verify via portal whether the current subscription needs one and submit if so.
-- [ ] Pick the deployment region. **Sweden Central** is the default for this repo. As of April 2026, new Azure subscriptions had zero default OpenAI quota in UK South (the original target), and `text-embedding-3-small` was not offered on regional `Standard` SKU in Sweden Central either. The deployment therefore uses mixed SKUs to stay inside the EU: `gpt-4o-mini` on regional `Standard` (chat inference fully within Sweden Central), `text-embedding-3-small` on `DataZoneStandard` (embedding inference within the EU data zone). Both deployments keep data inside the EU. UK South with uniform `Standard` remains the long-term target if quota is granted there. Confirm regional availability **and** quota of all three model+service combinations before committing infra.
+- [ ] Pick the deployment region. **Sweden Central** is the default for this repo. As of April 2026, new Azure subscriptions had zero default OpenAI quota in UK South (the original target), and `text-embedding-3-small` was not offered on regional `Standard` SKU in Sweden Central either. Additionally, as of 28 April 2026 `gpt-4o-mini@2024-07-18` is no longer accepting new deployments anywhere; Microsoft's recommended replacement (`gpt-4.1-mini@2025-04-14`) has zero default quota in Sweden Central on new subscriptions. The deployable alternative is `gpt-4o@2024-08-06` on regional `Standard` (50 TPM quota, sunset April 2027). The deployment therefore uses mixed SKUs to stay inside the EU: `gpt-4o` on regional `Standard` (chat inference fully within Sweden Central), `text-embedding-3-small` on `DataZoneStandard` (embedding inference within the EU data zone). Quality of `gpt-4o` is strictly better than the originally specified `gpt-4o-mini`, so the eval-gate thresholds (§6.3) only get easier; cost is ~30× per token but absolute build-phase spend stays inside the £25 budget (see §9.1). UK South with `gpt-4o-mini` remains the long-term target if quota and SKU availability return there. Confirm regional availability **and** quota of all three model+service combinations before committing infra.
 - [ ] Install local toolchain: `az` CLI ≥ 2.60, `azd` (Azure Developer CLI) ≥ 1.10, Bicep ≥ 0.27, Python 3.12, Docker, `gitleaks`.
 - [ ] `az login` — confirm Azure CLI is authenticated against the right tenant.
 - [ ] Run `az deployment group what-if` against an empty resource group to verify the auth path before writing real Bicep.
@@ -114,8 +114,8 @@ rag-on-azure/
 
 - Cognitive Services account, kind `OpenAI`, SKU `S0`
 - Two model deployments (mixed deployment SKUs forced by Sweden Central availability — see §0; the split is not a design preference):
-  - `embedding`: `text-embedding-3-small`, deployment SKU `DataZoneStandard`, capacity 30 (30k TPM)
-  - `chat`: `gpt-4o-mini`, deployment SKU `Standard`, capacity 50 (50k TPM)
+  - `embedding`: `text-embedding-3-small@1`, deployment SKU `DataZoneStandard`, capacity 30 (30k TPM)
+  - `chat`: `gpt-4o@2024-08-06`, deployment SKU `Standard`, capacity 50 (50k TPM) — substituted for `gpt-4o-mini` because that model stopped accepting new deployments on 2026-03-31 (see §0)
 - Public network access enabled for dev; documented as private endpoint in prod
 - Output: `openaiEndpoint`, deployment names
 
@@ -377,14 +377,16 @@ azd down --purge --force-delete      # nukes the resource group cleanly
 
 ### 9.1 Initial deployment
 
-| Component                    | Tier                                           | Estimated cost           |
-| ---------------------------- | ---------------------------------------------- | ------------------------ |
-| Azure AI Search              | Free                                           | £0                       |
-| Azure OpenAI                 | S0, ~50 eval runs × 20 questions × 1.5k tokens | ~£3                      |
-| Container Apps               | Consumption, scale-to-zero                     | <£1 (within free grants) |
-| App Insights + Log Analytics | First 5GB free                                 | ~£1                      |
-| Key Vault                    | Standard                                       | <£0.10                   |
-| **Initial total**            |                                                | **~£5**                  |
+| Component                    | Tier                                                                | Estimated cost           |
+| ---------------------------- | ------------------------------------------------------------------- | ------------------------ |
+| Azure AI Search              | Free                                                                | £0                       |
+| Azure OpenAI                 | S0, gpt-4o + text-embedding-3-small, ~50 eval runs × 20 q × 1.5k tk | ~£10                     |
+| Container Apps               | Consumption, scale-to-zero                                          | <£1 (within free grants) |
+| App Insights + Log Analytics | First 5GB free                                                      | ~£1                      |
+| Key Vault                    | Standard                                                            | <£0.10                   |
+| **Initial total**            |                                                                     | **~£12**                 |
+
+The OpenAI line lifted from ~£3 (the originally specified `gpt-4o-mini`) to ~£10 because `gpt-4o-mini` was no longer deployable on new subscriptions when this stack first deployed (see §0); `gpt-4o` is ~30× per token but the absolute build-phase total stays inside the £25 budget. If `gpt-4o-mini` (or `gpt-4.1-mini`) becomes deployable again with non-zero quota, swap back via `infra/main.parameters.json` and the OpenAI line returns to ~£3.
 
 ### 9.2 Steady-state, low traffic
 
