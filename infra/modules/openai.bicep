@@ -31,6 +31,22 @@ param embeddingCapacity int = 30
 @maxValue(120)
 param chatCapacity int = 50
 
+@description('Deployment SKU for the embedding model. Defaults to DataZoneStandard because Sweden Central does not offer regional Standard for text-embedding-3-small.')
+@allowed([
+  'Standard'
+  'DataZoneStandard'
+  'GlobalStandard'
+])
+param embeddingSku string = 'DataZoneStandard'
+
+@description('Deployment SKU for the chat model. Defaults to Standard (regional, fully in Sweden Central).')
+@allowed([
+  'Standard'
+  'DataZoneStandard'
+  'GlobalStandard'
+])
+param chatSku string = 'Standard'
+
 @description('Embedding model name.')
 param embeddingModelName string = 'text-embedding-3-small'
 
@@ -69,7 +85,7 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
   parent: openai
   name: embeddingDeploymentName
   sku: {
-    name: 'Standard'
+    name: embeddingSku
     capacity: embeddingCapacity
   }
   properties: {
@@ -85,7 +101,7 @@ resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-1
   parent: openai
   name: chatDeploymentName
   sku: {
-    name: 'Standard'
+    name: chatSku
     capacity: chatCapacity
   }
   properties: {

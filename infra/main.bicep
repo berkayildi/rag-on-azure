@@ -1,7 +1,7 @@
 targetScope = 'resourceGroup'
 
-@description('Azure region. Defaults to the resource group location.')
-param location string = resourceGroup().location
+@description('Azure region. Defaults to swedencentral — see design spec §0 for region selection.')
+param location string = 'swedencentral'
 
 @description('Environment name.')
 @allowed([
