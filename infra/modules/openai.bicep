@@ -56,8 +56,8 @@ param embeddingModelVersion string = '1'
 @description('Chat model name. Defaults to gpt-4o because gpt-4o-mini@2024-07-18 stopped accepting new deployments on 2026-03-31; see design spec §0 for the chain of forcing functions.')
 param chatModelName string = 'gpt-4o'
 
-@description('Chat model version.')
-param chatModelVersion string = '2024-08-06'
+@description('Chat model version. 2024-11-20 is the only currently-deployable gpt-4o variant on this subscription; @2024-08-06 is rejected by the validator due to a dual SKU listing with one expired sunset. See design spec §0.')
+param chatModelVersion string = '2024-11-20'
 
 var openaiName = '${prefix}-${environmentName}-openai-${uniqueSuffix}'
 var embeddingDeploymentName = 'embedding'
