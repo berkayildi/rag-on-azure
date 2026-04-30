@@ -373,7 +373,7 @@ curl -H "Authorization: Bearer $(python scripts/mint-token.py demo)" \
 ### 8.3 Tear-down
 
 ```bash
-azd down --purge --force-delete      # nukes the resource group cleanly
+azd down --purge --force      # nukes the resource group cleanly
 ```
 
 ## 9. Cost envelope
@@ -408,7 +408,7 @@ Comfortably inside Azure's £200 free-trial credit.
 ### 9.3 Decommission mode
 
 ```bash
-azd down --purge --force-delete
+azd down --purge --force
 ```
 
 Cost: ~£0/month (only the resource group remains, free).
