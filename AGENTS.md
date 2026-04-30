@@ -35,17 +35,17 @@ make run                     # uvicorn local server with fakes
 ### Live deployment
 
 ```bash
-az login
-azd auth login
-azd env new dev
-azd up                       # provisions infra, deploys image
+make init                    # azd auth login + az login check
+azd env new dev              # one-time per environment
+make apply                   # provisions infra (azd provision)
+make up                      # Day 5+: provision + deploy image (azd up)
 ./scripts/seed-corpus.sh     # one-shot ingest
 ```
 
 ### Tear-down
 
 ```bash
-azd down --purge --force-delete
+make down                    # azd down --purge --force, with confirmation countdown
 ```
 
 ## Code conventions
