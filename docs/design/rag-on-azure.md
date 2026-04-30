@@ -101,6 +101,7 @@ rag-on-azure/
 
 - Resource group scope, parameter inputs: `location`, `environmentName` (`dev` | `prod`), `tenantSeedIds` (string array)
 - `location` defaults to `swedencentral` (see §0); override per environment via parameters file
+- Resource group name follows azd's default convention: `rg-${environmentName}` (so `rg-dev`, `rg-prod`). Resources inside are prefixed with `rag-${environmentName}-` and disambiguated by a 6-char `uniqueString(resourceGroup().id)` suffix.
 - Outputs: `containerAppFqdn`, `searchEndpoint`, `openaiEndpoint`, `keyVaultName`
 - Wires modules in order: monitor → keyvault → search → openai → containerapp
 
