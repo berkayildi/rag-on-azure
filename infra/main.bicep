@@ -32,6 +32,9 @@ param jwtSigningKeyValue string = newGuid()
 @description('Container image to deploy. Day 2 uses an MCR placeholder; the FastAPI image lands in CI from Day 5 onwards.')
 param containerImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
 
+@description('Optional. Object ID of a developer principal granted Search Index Data Contributor on the search service so a human can run `make ingest` locally. Set this in the gitignored `main.parameters.json` only — never commit a real GUID. See README §Development.')
+param developerPrincipalId string = ''
+
 var uniqueSuffix = take(uniqueString(resourceGroup().id), 6)
 
 var tags = {
@@ -71,6 +74,7 @@ module search 'modules/search.bicep' = {
     uniqueSuffix: uniqueSuffix
     sku: searchSku
     tags: tags
+    developerPrincipalId: developerPrincipalId
   }
 }
 

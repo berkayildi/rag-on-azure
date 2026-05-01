@@ -13,6 +13,9 @@
     },
     "searchSku": {
       "value": "free"
+    },
+    "developerPrincipalId": {
+      "value": ""
     }
   }
 }

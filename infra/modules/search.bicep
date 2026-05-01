@@ -28,7 +28,12 @@ param sku string = 'free'
 @description('Tags applied to the search service.')
 param tags object
 
+@description('Optional. Object ID of a developer principal (e.g. `az ad signed-in-user show --query id -o tsv`) to grant Search Index Data Contributor on this service. Empty string disables the assignment. Used so a human running `make ingest` locally can create indexes against this service. The deployed Container App MI already has the same role assignment in `modules/containerapp.bicep`.')
+param developerPrincipalId string = ''
+
 var searchName = '${prefix}-${environmentName}-search-${uniqueSuffix}'
+
+var searchIndexDataContributorRoleId = '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
 
 resource search 'Microsoft.Search/searchServices@2023-11-01' = {
   name: searchName
@@ -48,6 +53,16 @@ resource search 'Microsoft.Search/searchServices@2023-11-01' = {
       }
     }
     semanticSearch: 'disabled'
+  }
+}
+
+resource developerSearchContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(developerPrincipalId)) {
+  name: guid(search.id, developerPrincipalId, searchIndexDataContributorRoleId)
+  scope: search
+  properties: {
+    principalId: developerPrincipalId
+    principalType: 'User'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', searchIndexDataContributorRoleId)
   }
 }
 
