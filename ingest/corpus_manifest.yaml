@@ -1,0 +1,72 @@
+# Corpus manifest for rag-on-azure.
+#
+# Public, redistributable UK regulatory documents. See
+# docs/design/rag-on-azure.md §4.1 for the corpus narrative and §4.2 for
+# manifest semantics. Forks are encouraged to swap this file out wholesale.
+#
+# Fields:
+#   id           stable identifier; used as the cache key and source field on chunks
+#   title        human-readable title for logs
+#   url          fetch URL (must be publicly resolvable, no auth)
+#   format       html | md | pdf  (pdf sources are skipped in v1; tracked for v2)
+#   licence_url  URL describing the licence under which the source is redistributed
+#
+# tenant_id is taken from `default_tenant_id` unless overridden per-source.
+
+default_tenant_id: demo
+
+sources:
+  # FCA Handbook (Financial Conduct Authority)
+  # Crown copyright; redistributable under the FCA Handbook copyright terms.
+  - id: fca-cond
+    title: "FCA Handbook — COND (Threshold Conditions)"
+    url: https://www.handbook.fca.org.uk/handbook/COND.html
+    format: html
+    licence_url: https://www.handbook.fca.org.uk/handbook/copyright.html
+
+  - id: fca-sysc-1
+    title: "FCA Handbook — SYSC 1 (Application and Purpose)"
+    url: https://www.handbook.fca.org.uk/handbook/SYSC/1/1.html
+    format: html
+    licence_url: https://www.handbook.fca.org.uk/handbook/copyright.html
+
+  - id: fca-cass-7
+    title: "FCA Handbook — CASS 7 (Client Money)"
+    url: https://www.handbook.fca.org.uk/handbook/CASS/7/1.html
+    format: html
+    licence_url: https://www.handbook.fca.org.uk/handbook/copyright.html
+
+  - id: fca-cass-9
+    title: "FCA Handbook — CASS 9 (Information to Clients)"
+    url: https://www.handbook.fca.org.uk/handbook/CASS/9/1.html
+    format: html
+    licence_url: https://www.handbook.fca.org.uk/handbook/copyright.html
+
+  - id: fca-fcg
+    title: "FCA Financial Crime Guide"
+    url: https://www.handbook.fca.org.uk/handbook/FCG.html
+    format: html
+    licence_url: https://www.handbook.fca.org.uk/handbook/copyright.html
+
+  # HMRC / gov.uk
+  # Open Government Licence v3.0.
+  - id: hmrc-trs-register
+    title: "HMRC — Register a trust as a trustee"
+    url: https://www.gov.uk/guidance/register-a-trust-as-a-trustee
+    format: html
+    licence_url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
+
+  - id: hmrc-aml-tcsp
+    title: "HMRC — Money laundering supervision for trust or company service providers"
+    url: https://www.gov.uk/government/publications/money-laundering-supervision-for-trust-or-company-service-providers
+    format: html
+    licence_url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
+
+  # FATF — PDF only as of 2026-04. Out of scope for v1; declared so the
+  # PDF-skip path in fetch.py has something to exercise. Revisit when v2 adds
+  # a PDF extractor.
+  - id: fatf-recommendations
+    title: "FATF — The FATF Recommendations (40 Recommendations)"
+    url: https://www.fatf-gafi.org/content/dam/fatf-gafi/recommendations/FATF%20Recommendations%202012.pdf
+    format: pdf
+    licence_url: https://www.fatf-gafi.org/en/the-fatf/legal-policies.html

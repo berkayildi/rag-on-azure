@@ -53,6 +53,9 @@ pnpm-debug.log*
 *.bicepparam.local
 infra/main.parameters.json
 
+# Ingest pipeline local cache (fetched corpus, chunks.jsonl)
+ingest/.cache/
+
 # Environment files (only .env.example is committed)
 .env
 .env.*
