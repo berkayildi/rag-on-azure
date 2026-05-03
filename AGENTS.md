@@ -54,6 +54,7 @@ make down                    # azd down --purge --force, with confirmation count
 - **Ruff** for lint and format (config in `pyproject.toml`)
 - **Pydantic** for all data models — never raw dicts crossing module boundaries
 - **Async-first** — all I/O is async; tests use `pytest-asyncio`
+- When using the `.aio` modules from `azure-identity` or `azure-search-documents`, add `aiohttp>=3.10,<4` as a runtime dependency. It's the async transport these libraries use at runtime — gated behind the `[aio]` extra in their packaging but required when async classes are instantiated
 - **No LangChain** — LangGraph only (see `docs/design/rag-on-azure.md` §11)
 - **No raw API keys in code or env** — managed identity via `DefaultAzureCredential` is the only deployed-stack auth path
 - When adding a runtime dependency to any `pyproject.toml`, also add it (with the matching version pin) to `.pre-commit-config.yaml`'s mypy hook `additional_dependencies` — the hook runs in an isolated env and needs the same deps to type-check imports
