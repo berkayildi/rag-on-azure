@@ -32,6 +32,8 @@ repos:
           - tenacity>=9.0,<10
           - types-PyYAML>=6.0,<7
           - markdownify>=0.13,<1
+          - tiktoken>=0.8,<1
+          - langchain-text-splitters>=0.3,<0.4
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
