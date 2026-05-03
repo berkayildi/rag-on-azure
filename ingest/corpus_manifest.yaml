@@ -57,8 +57,12 @@ sources:
     licence_url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
 
   - id: hmrc-aml-tcsp
-    title: "HMRC — Money laundering supervision for trust or company service providers"
-    url: https://www.gov.uk/government/publications/money-laundering-supervision-for-trust-or-company-service-providers
+    title: "HMRC — Register for AML supervision as a trust or company service provider"
+    # Canonical "register for AML supervision as a TCSP" guidance. The earlier
+    # /government/publications/ URL 404'd as of 2026-05; this /guidance/ slug
+    # is the current live page. Slightly narrower scope than the original URL
+    # implied, but legitimate AML/TCSP regulatory content.
+    url: https://www.gov.uk/guidance/check-if-you-need-to-register-for-money-laundering-supervision-if-youre-a-trust-or-company-service-provider
     format: html
     licence_url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
 
