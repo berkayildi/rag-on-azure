@@ -59,9 +59,14 @@ param chatModelName string = 'gpt-4o'
 @description('Chat model version. 2024-11-20 is the only currently-deployable gpt-4o variant on this subscription; @2024-08-06 is rejected by the validator due to a dual SKU listing with one expired sunset. See design spec §0.')
 param chatModelVersion string = '2024-11-20'
 
+@description('Optional. Object ID of a developer principal (e.g. `az ad signed-in-user show --query id -o tsv`) to grant Cognitive Services OpenAI User on this account. Empty string disables the assignment. Used so a human running `make ingest` locally can call the embedding deployment via DefaultAzureCredential. The deployed Container App MI already has the same role assignment in `modules/containerapp.bicep`. Mirrors the search-service developer RBAC pattern.')
+param developerPrincipalId string = ''
+
 var openaiName = '${prefix}-${environmentName}-openai-${uniqueSuffix}'
 var embeddingDeploymentName = 'embedding'
 var chatDeploymentName = 'chat'
+
+var cognitiveServicesOpenAIUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
 
 resource openai 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
   name: openaiName
@@ -114,6 +119,16 @@ resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-1
   dependsOn: [
     embeddingDeployment
   ]
+}
+
+resource developerOpenAIUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(developerPrincipalId)) {
+  name: guid(openai.id, developerPrincipalId, cognitiveServicesOpenAIUserRoleId)
+  scope: openai
+  properties: {
+    principalId: developerPrincipalId
+    principalType: 'User'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAIUserRoleId)
+  }
 }
 
 output openaiId string = openai.id

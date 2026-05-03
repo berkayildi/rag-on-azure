@@ -86,6 +86,7 @@ module openai 'modules/openai.bicep' = {
     environmentName: environmentName
     uniqueSuffix: uniqueSuffix
     tags: tags
+    developerPrincipalId: developerPrincipalId
   }
 }
 
