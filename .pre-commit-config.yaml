@@ -35,6 +35,8 @@ repos:
           - tiktoken>=0.8,<1
           - langchain-text-splitters>=0.3,<0.4
           - azure-search-documents>=11.5,<12
+          - azure-identity>=1.18,<2
+          - openai>=1.50,<2
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
