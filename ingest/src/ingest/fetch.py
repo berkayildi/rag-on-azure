@@ -248,18 +248,40 @@ async def fetch_all(
 _INGEST_DIR = Path(__file__).resolve().parent.parent.parent
 
 
-def run() -> None:
-    manifest_path = _INGEST_DIR / "corpus_manifest.yaml"
-    cache_dir = _INGEST_DIR / ".cache"
+def _summarise_and_report(results: list[FetchResult]) -> None:
+    """Log the run summary and raise only on systemic failure.
 
-    results = asyncio.run(fetch_all(manifest_path, cache_dir))
-
+    Pipeline-level resilience: a single dead URL (404 / 5xx-after-retries)
+    must not abort ``make ingest``. The downstream ``.fetched.jsonl`` index
+    already excludes failed and PDF-skipped sources, so chunk + index
+    operate only on what fetched cleanly. We raise only when *every* source
+    failed — a systemic issue (auth, DNS, manifest typo) that warrants
+    operator attention.
+    """
     counts: dict[str, int] = {}
     for r in results:
         counts[r.status] = counts.get(r.status, 0) + 1
     log.info("fetch complete: %s", counts)
 
     failed = [r for r in results if r.status == "failed"]
+    succeeded = [r for r in results if r.status in ("fetched", "unchanged")]
+
     if failed:
         ids = ", ".join(r.id for r in failed)
-        raise RuntimeError(f"{len(failed)} sources failed: {ids}")
+        log.warning(
+            "%d source(s) failed: %s — continuing with %d successful",
+            len(failed),
+            ids,
+            len(succeeded),
+        )
+
+    if results and all(r.status == "failed" for r in results):
+        raise RuntimeError(f"all {len(results)} sources failed; aborting pipeline")
+
+
+def run() -> None:
+    manifest_path = _INGEST_DIR / "corpus_manifest.yaml"
+    cache_dir = _INGEST_DIR / ".cache"
+
+    results = asyncio.run(fetch_all(manifest_path, cache_dir))
+    _summarise_and_report(results)

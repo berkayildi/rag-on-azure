@@ -16,7 +16,9 @@ import ingest.fetch as fetch_mod
 from ingest.fetch import (
     INDEX_FILENAME,
     FetchedRecord,
+    FetchResult,
     Manifest,
+    _summarise_and_report,
     fetch_all,
     load_manifest,
 )
@@ -385,3 +387,46 @@ async def test_fetched_jsonl_includes_unchanged_on_rerun(tmp_path: Path) -> None
     ]
     records = [FetchedRecord.model_validate_json(line) for line in lines]
     assert [r.id for r in records] == ["html-one"]
+
+
+# ---------------------------------------------------------------------------
+# Pipeline-level resilience: _summarise_and_report
+# ---------------------------------------------------------------------------
+
+
+def _result(status: str, id: str = "x") -> FetchResult:
+    sha = "0" * 64 if status in ("fetched", "unchanged") else None
+    return FetchResult(id=id, status=status, sha256=sha)  # type: ignore[arg-type]
+
+
+def test_partial_failure_does_not_raise() -> None:
+    """Anchor: one bad URL must not abort the pipeline. Chunk + index will
+    operate on whatever the .fetched.jsonl index contains."""
+    results = [
+        _result("fetched", id="ok-1"),
+        _result("failed", id="bad-1"),
+        _result("fetched", id="ok-2"),
+    ]
+    _summarise_and_report(results)  # must not raise
+
+
+def test_all_failed_raises() -> None:
+    results = [_result("failed", id=f"bad-{i}") for i in range(3)]
+    with pytest.raises(RuntimeError, match="all 3 sources failed"):
+        _summarise_and_report(results)
+
+
+def test_only_skipped_pdfs_does_not_raise() -> None:
+    """A manifest of only PDF entries is a no-op pipeline, not an error."""
+    results = [_result("skipped_pdf", id=f"p-{i}") for i in range(2)]
+    _summarise_and_report(results)  # must not raise
+
+
+def test_only_unchanged_does_not_raise() -> None:
+    """Re-runs that hit the cache for every source must not raise."""
+    results = [_result("unchanged", id=f"u-{i}") for i in range(3)]
+    _summarise_and_report(results)
+
+
+def test_empty_results_does_not_raise() -> None:
+    _summarise_and_report([])
