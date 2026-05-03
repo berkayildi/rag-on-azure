@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help init fmt validate plan apply deploy up down outputs logs test lint precommit clean
+.PHONY: help init fmt validate plan apply deploy up down outputs logs test lint precommit clean ingest
 
 BICEP_FILES := $(shell find infra -name '*.bicep' -type f 2>/dev/null)
 
@@ -86,6 +86,9 @@ lint: ## Run ruff + mypy (skips if no Python files yet)
 
 precommit: ## Run pre-commit on all files
 	pre-commit run --all-files
+
+ingest: ## Run the corpus pipeline (fetch -> chunk -> index)
+	python -m ingest all
 
 clean: ## Remove caches and build artefacts
 	@find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache -o -name build -o -name dist -o -name '*.egg-info' \) -prune -exec rm -rf {} + 2>/dev/null || true
