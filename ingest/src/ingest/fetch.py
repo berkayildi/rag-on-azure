@@ -48,6 +48,7 @@ _RETRY_STOP = stop_after_attempt(MAX_ATTEMPTS)
 
 SourceFormat = Literal["html", "pdf"]
 FetchStatus = Literal["fetched", "unchanged", "skipped_pdf", "failed"]
+INDEX_FILENAME = ".fetched.jsonl"
 
 
 class Source(BaseModel):
@@ -74,6 +75,21 @@ class FetchResult(BaseModel):
     sha256: str | None = None
     path: Path | None = None
     message: str | None = None
+
+
+class FetchedRecord(BaseModel):
+    """One row of ``.fetched.jsonl``: an index of consumable sources for chunk.py.
+
+    Written only for sources whose status is ``fetched`` or ``unchanged``.
+    Skipped (PDF) and failed sources are omitted by design — downstream phases
+    should never see them.
+    """
+
+    id: str
+    tenant_id: str
+    format: SourceFormat
+    md_path: str  # filename, relative to cache_dir
+    sha256: str
 
 
 def load_manifest(path: Path) -> Manifest:
@@ -176,6 +192,32 @@ async def _fetch_one(
     )
 
 
+def _write_fetched_index(
+    cache_dir: Path,
+    pairs: list[tuple[Source, str]],
+    results: list[FetchResult],
+) -> None:
+    """Emit ``.fetched.jsonl`` summarising successful fetches for chunk.py.
+
+    Only ``fetched`` and ``unchanged`` rows are included — failed and
+    PDF-skipped sources are deliberately invisible to downstream phases.
+    """
+    index_path = cache_dir / INDEX_FILENAME
+    with index_path.open("w", encoding="utf-8") as f:
+        for (source, tenant_id), result in zip(pairs, results, strict=True):
+            if result.status not in ("fetched", "unchanged"):
+                continue
+            assert result.sha256 is not None  # invariant of the status filter
+            record = FetchedRecord(
+                id=source.id,
+                tenant_id=tenant_id,
+                format=source.format,
+                md_path=f"{source.id}.md",
+                sha256=result.sha256,
+            )
+            f.write(record.model_dump_json() + "\n")
+
+
 async def fetch_all(
     manifest_path: Path,
     cache_dir: Path,
@@ -185,6 +227,7 @@ async def fetch_all(
     manifest = load_manifest(manifest_path)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    pairs = manifest.resolved()
     headers = {"User-Agent": USER_AGENT}
     async with httpx.AsyncClient(
         transport=transport,
@@ -194,9 +237,12 @@ async def fetch_all(
     ) as client:
         coros = [
             _fetch_one(source, tenant_id, client, cache_dir)
-            for source, tenant_id in manifest.resolved()
+            for source, tenant_id in pairs
         ]
-        return await asyncio.gather(*coros)
+        results = await asyncio.gather(*coros)
+
+    _write_fetched_index(cache_dir, pairs, results)
+    return results
 
 
 _INGEST_DIR = Path(__file__).resolve().parent.parent.parent

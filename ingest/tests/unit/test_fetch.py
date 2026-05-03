@@ -13,7 +13,13 @@ from pydantic import ValidationError
 from tenacity import wait_none
 
 import ingest.fetch as fetch_mod
-from ingest.fetch import Manifest, fetch_all, load_manifest
+from ingest.fetch import (
+    INDEX_FILENAME,
+    FetchedRecord,
+    Manifest,
+    fetch_all,
+    load_manifest,
+)
 
 
 HTML_BODY = (
@@ -305,3 +311,77 @@ async def test_one_source_failure_does_not_block_others(tmp_path: Path) -> None:
     by_id = {r.id: r for r in results}
     assert by_id["ok"].status == "fetched"
     assert by_id["bad"].status == "failed"
+
+
+# ---------------------------------------------------------------------------
+# .fetched.jsonl index
+# ---------------------------------------------------------------------------
+
+
+async def test_fetched_jsonl_lists_only_consumable_sources(tmp_path: Path) -> None:
+    body = (
+        "default_tenant_id: demo\n"
+        "sources:\n"
+        "  - id: html-ok\n"
+        '    title: "OK"\n'
+        "    url: https://example.test/ok\n"
+        "    format: html\n"
+        "    licence_url: https://example.test/l\n"
+        "  - id: html-bad\n"
+        '    title: "BAD"\n'
+        "    url: https://example.test/bad\n"
+        "    format: html\n"
+        "    licence_url: https://example.test/l\n"
+        "  - id: pdf-skip\n"
+        '    title: "PDF"\n'
+        "    url: https://example.test/p.pdf\n"
+        "    format: pdf\n"
+        "    licence_url: https://example.test/l\n"
+    )
+    manifest_path = _write_manifest(tmp_path, body)
+    cache = tmp_path / ".cache"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/bad":
+            return httpx.Response(404)
+        return httpx.Response(200, content=HTML_BODY)
+
+    transport = httpx.MockTransport(handler)
+    await fetch_all(manifest_path, cache, transport=transport)
+
+    index_path = cache / INDEX_FILENAME
+    assert index_path.exists()
+
+    lines = [line for line in index_path.read_text().splitlines() if line.strip()]
+    records = [FetchedRecord.model_validate_json(line) for line in lines]
+
+    ids = {r.id for r in records}
+    assert ids == {"html-ok"}  # bad/failed and pdf-skipped both omitted
+
+    [ok] = records
+    assert ok.tenant_id == "demo"
+    assert ok.format == "html"
+    assert ok.md_path == "html-ok.md"
+    assert ok.sha256  # populated, not empty
+
+
+async def test_fetched_jsonl_includes_unchanged_on_rerun(tmp_path: Path) -> None:
+    manifest_path = _write_manifest(tmp_path, _basic_manifest())
+    cache = tmp_path / ".cache"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=HTML_BODY)
+
+    transport = httpx.MockTransport(handler)
+
+    await fetch_all(manifest_path, cache, transport=transport)
+    [second] = await fetch_all(manifest_path, cache, transport=transport)
+    assert second.status == "unchanged"
+
+    lines = [
+        line
+        for line in (cache / INDEX_FILENAME).read_text().splitlines()
+        if line.strip()
+    ]
+    records = [FetchedRecord.model_validate_json(line) for line in lines]
+    assert [r.id for r in records] == ["html-one"]
