@@ -10,7 +10,7 @@ def test_package_imports() -> None:
 
 
 def test_submodules_import() -> None:
-    from ingest import chunk, clients, fetch, index, schema  # noqa: F401
+    from ingest import chunk, fetch, index, schema  # noqa: F401
 
 
 def test_cli_help_exits_cleanly() -> None:
