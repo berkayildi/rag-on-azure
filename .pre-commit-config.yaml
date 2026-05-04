@@ -28,6 +28,7 @@ repos:
         files: ^(app|ingest)/src/
         additional_dependencies:
           - httpx>=0.27,<1
+          - aiohttp>=3.10,<4
           - pydantic>=2.9,<3
           - tenacity>=9.0,<10
           - types-PyYAML>=6.0,<7
