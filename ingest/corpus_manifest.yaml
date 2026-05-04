@@ -8,7 +8,7 @@
 #   id           stable identifier; used as the cache key and source field on chunks
 #   title        human-readable title for logs
 #   url          fetch URL (must be publicly resolvable, no auth)
-#   format       html | md | pdf  (pdf sources are skipped in v1; tracked for v2)
+#   format       html | pdf  (PDFs are extracted page-by-page via pypdf — see fetch.py)
 #   licence_url  URL describing the licence under which the source is redistributed
 #
 # tenant_id is taken from `default_tenant_id` unless overridden per-source.
@@ -16,40 +16,74 @@
 default_tenant_id: demo
 
 sources:
-  # FCA Handbook (Financial Conduct Authority)
-  # Crown copyright; redistributable under the FCA Handbook copyright terms.
-  - id: fca-cond
-    title: "FCA Handbook — COND (Threshold Conditions)"
-    url: https://www.handbook.fca.org.uk/handbook/COND.html
-    format: html
-    licence_url: https://www.handbook.fca.org.uk/handbook/copyright.html
+  # ---------------------------------------------------------------------------
+  # FCA Publications (Financial Conduct Authority)
+  #
+  # Pivoted from the FCA Handbook in May 2026. The Handbook
+  # (handbook.fca.org.uk) is an Angular SPA that returns a JS shell to any
+  # non-browser fetch — every variant of CASS/COND/SYSC/FCG/print-view URLs
+  # collapsed to identical chrome HTML in v1 ingest. fca.org.uk/publications,
+  # by contrast, serves direct PDFs from server-rendered metadata pages.
+  #
+  # Crown copyright; redistributable under FCA copyright terms.
+  # ---------------------------------------------------------------------------
 
-  - id: fca-sysc-1
-    title: "FCA Handbook — SYSC 1 (Application and Purpose)"
-    url: https://www.handbook.fca.org.uk/handbook/SYSC/1/1.html
-    format: html
-    licence_url: https://www.handbook.fca.org.uk/handbook/copyright.html
+  # Policy Statement — final rules and guidance from a completed consultation.
+  - id: fca-ps26-3
+    title: "FCA PS26/3 — Motor finance consumer redress scheme"
+    url: https://www.fca.org.uk/publication/policy/ps26-3.pdf
+    format: pdf
+    licence_url: https://www.fca.org.uk/legal-information/copyright
 
-  - id: fca-cass-7
-    title: "FCA Handbook — CASS 7 (Client Money)"
-    url: https://www.handbook.fca.org.uk/handbook/CASS/7/1.html
-    format: html
-    licence_url: https://www.handbook.fca.org.uk/handbook/copyright.html
+  # Policy Statement.
+  - id: fca-ps26-7
+    title: "FCA PS26/7 — Progressing Fund Tokenisation"
+    url: https://www.fca.org.uk/publication/policy/ps26-7.pdf
+    format: pdf
+    licence_url: https://www.fca.org.uk/legal-information/copyright
 
-  - id: fca-cass-9
-    title: "FCA Handbook — CASS 9 (Information to Clients)"
-    url: https://www.handbook.fca.org.uk/handbook/CASS/9/1.html
-    format: html
-    licence_url: https://www.handbook.fca.org.uk/handbook/copyright.html
+  # Policy Statement — Consumer Duty foundation document.
+  - id: fca-ps22-9
+    title: "FCA PS22/9 — A new Consumer Duty"
+    url: https://www.fca.org.uk/publication/policy/ps22-9.pdf
+    format: pdf
+    licence_url: https://www.fca.org.uk/legal-information/copyright
 
-  - id: fca-fcg
-    title: "FCA Financial Crime Guide"
-    url: https://www.handbook.fca.org.uk/handbook/FCG.html
-    format: html
-    licence_url: https://www.handbook.fca.org.uk/handbook/copyright.html
+  # Consultation Paper — proposed rule changes open for industry response.
+  - id: fca-cp26-15
+    title: "FCA CP26/15 — CONC 3: Reviewing the financial promotions rules for consumer credit"
+    url: https://www.fca.org.uk/publication/consultation/cp26-15.pdf
+    format: pdf
+    licence_url: https://www.fca.org.uk/legal-information/copyright
 
+  # Consultation Paper.
+  - id: fca-cp26-14
+    title: "FCA CP26/14 — Changes to information flows for UK equity IPOs"
+    url: https://www.fca.org.uk/publication/consultation/cp26-14.pdf
+    format: pdf
+    licence_url: https://www.fca.org.uk/legal-information/copyright
+
+  # Finalised Guidance — non-Handbook firm guidance, Consumer Duty companion to PS22/9.
+  - id: fca-fg22-5
+    title: "FCA FG22/5 — Final non-Handbook Guidance for firms on the Consumer Duty"
+    url: https://www.fca.org.uk/publication/finalised-guidance/fg22-5.pdf
+    format: pdf
+    licence_url: https://www.fca.org.uk/legal-information/copyright
+
+  # Finalised Guidance — vulnerable customer fair treatment.
+  # FG23/3 was the originally proposed slug but actually points to a Cryptoasset
+  # Financial Promotions document; the canonical vulnerable-customers FG is
+  # FG21/1 (still load-bearing in 2026, no superseding FG published since).
+  - id: fca-fg21-1
+    title: "FCA FG21/1 — Guidance for firms on the fair treatment of vulnerable customers"
+    url: https://www.fca.org.uk/publication/finalised-guidance/fg21-1.pdf
+    format: pdf
+    licence_url: https://www.fca.org.uk/legal-information/copyright
+
+  # ---------------------------------------------------------------------------
   # HMRC / gov.uk
   # Open Government Licence v3.0.
+  # ---------------------------------------------------------------------------
   - id: hmrc-trs-register
     title: "HMRC — Register a trust as a trustee"
     url: https://www.gov.uk/guidance/register-a-trust-as-a-trustee
@@ -65,12 +99,3 @@ sources:
     url: https://www.gov.uk/guidance/check-if-you-need-to-register-for-money-laundering-supervision-if-youre-a-trust-or-company-service-provider
     format: html
     licence_url: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
-
-  # FATF — PDF only as of 2026-04. Out of scope for v1; declared so the
-  # PDF-skip path in fetch.py has something to exercise. Revisit when v2 adds
-  # a PDF extractor.
-  - id: fatf-recommendations
-    title: "FATF — The FATF Recommendations (40 Recommendations)"
-    url: https://www.fatf-gafi.org/content/dam/fatf-gafi/recommendations/FATF%20Recommendations%202012.pdf
-    format: pdf
-    licence_url: https://www.fatf-gafi.org/en/the-fatf/legal-policies.html
