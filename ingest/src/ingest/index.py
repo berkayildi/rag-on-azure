@@ -26,9 +26,9 @@ from typing import Any, Protocol
 from azure.identity.aio import DefaultAzureCredential
 from azure.search.documents.aio import SearchClient
 from azure.search.documents.indexes.aio import SearchIndexClient
+from rag_on_azure.clients.llm import AzureOpenAIClient
 
 from ingest.chunk import CHUNKS_FILENAME, Chunk
-from ingest.clients import AzureOpenAIEmbeddingClient
 from ingest.schema import INDEX_NAME, create_or_update_index
 
 log = logging.getLogger(__name__)
@@ -167,9 +167,11 @@ async def _async_run() -> None:
     index_name = os.environ.get("AZURE_SEARCH_INDEX_NAME", INDEX_NAME)
 
     credential = DefaultAzureCredential()
-    embedder = AzureOpenAIEmbeddingClient(
+    # Canonical client from app/ — see docs/design/rag-on-azure.md §3.3.
+    # chat_deployment is omitted because ingest only calls .embed().
+    embedder = AzureOpenAIClient(
         endpoint=openai_endpoint,
-        deployment=embedding_deployment,
+        embedding_deployment=embedding_deployment,
         credential=credential,
     )
     search_index_client = SearchIndexClient(
