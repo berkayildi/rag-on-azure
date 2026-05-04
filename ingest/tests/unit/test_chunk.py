@@ -180,6 +180,32 @@ def test_chunks_jsonl_is_full_rewrite(tmp_path: Path) -> None:
     assert {c.source for c in second} == {"doc-b"}
 
 
+def test_pdf_page_markers_survive_chunking(tmp_path: Path) -> None:
+    """``<!-- page N -->`` markers and ``---`` separators emitted by the PDF
+    extractor must reach chunk_text intact, so the generate node can recover
+    page citations from retrieved chunks. Anchors the contract that fetch.py's
+    page-marker convention isn't silently mangled by either splitter.
+    """
+    cache = tmp_path / ".cache"
+    # Mimic the structure ``_pdf_to_markdown`` produces: page marker, body,
+    # ``---`` separator, next page marker, body. No H1/H2/H3 headings — so
+    # MarkdownHeaderTextSplitter yields a single header_chunk and the
+    # recursive splitter then carves it by tokens.
+    md = (
+        "<!-- page 1 -->\n\n"
+        "first page body about client money segregation requirements\n\n"
+        "---\n\n"
+        "<!-- page 2 -->\n\n"
+        "second page body about CASS 7 compliance obligations\n"
+    )
+    _seed(cache, [("pdf-doc", "pdf-doc.md", md)])
+
+    chunks = chunk_all(cache)
+    joined = " ".join(c.chunk_text for c in chunks)
+    assert "<!-- page 1 -->" in joined
+    assert "<!-- page 2 -->" in joined
+
+
 def test_missing_index_raises(tmp_path: Path) -> None:
     cache = tmp_path / ".cache"
     cache.mkdir()

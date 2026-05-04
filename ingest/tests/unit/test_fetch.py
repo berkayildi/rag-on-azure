@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -22,6 +23,8 @@ from ingest.fetch import (
     fetch_all,
     load_manifest,
 )
+
+PDF_HEADERS = {"content-type": "application/pdf"}
 
 
 HTML_BODY = (
@@ -151,34 +154,6 @@ async def test_fetches_html_and_writes_markdown_plus_meta(tmp_path: Path) -> Non
     assert meta["tenant_id"] == "demo"
     assert meta["sha256"] == hashlib.sha256(HTML_BODY).hexdigest()
     assert "fetched_at" in meta
-
-
-async def test_skips_pdf_without_network_call(tmp_path: Path) -> None:
-    body = (
-        "default_tenant_id: demo\n"
-        "sources:\n"
-        "  - id: pdf-only\n"
-        '    title: "P"\n'
-        "    url: https://example.test/p.pdf\n"
-        "    format: pdf\n"
-        "    licence_url: https://example.test/l\n"
-    )
-    manifest_path = _write_manifest(tmp_path, body)
-    cache = tmp_path / ".cache"
-
-    calls: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(str(request.url))
-        return httpx.Response(200, content=b"unreached")
-
-    transport = httpx.MockTransport(handler)
-    [result] = await fetch_all(manifest_path, cache, transport=transport)
-
-    assert result.status == "skipped_pdf"
-    assert calls == []
-    assert not (cache / "pdf-only.md").exists()
-    assert not (cache / "pdf-only.meta.json").exists()
 
 
 async def test_idempotent_when_hash_unchanged(tmp_path: Path) -> None:
@@ -316,11 +291,196 @@ async def test_one_source_failure_does_not_block_others(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# PDF extraction
+# ---------------------------------------------------------------------------
+
+
+def _pdf_manifest(url: str = "https://example.test/doc.pdf") -> str:
+    return (
+        "default_tenant_id: demo\n"
+        "sources:\n"
+        "  - id: pdf-one\n"
+        '    title: "PDF one"\n'
+        f"    url: {url}\n"
+        "    format: pdf\n"
+        "    licence_url: https://example.test/l\n"
+    )
+
+
+async def test_fetches_pdf_via_content_type_header(
+    tmp_path: Path, make_pdf: Callable[[list[str]], bytes]
+) -> None:
+    """URL has no .pdf suffix; only the application/pdf header signals PDF."""
+    pages = ["client money segregation rules text", "second page about CASS 7"]
+    pdf_bytes = make_pdf(pages)
+
+    # URL deliberately *not* ending in .pdf — header is the only PDF signal.
+    manifest_path = _write_manifest(
+        tmp_path, _pdf_manifest(url="https://example.test/document")
+    )
+    cache = tmp_path / ".cache"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=pdf_bytes, headers=PDF_HEADERS)
+
+    transport = httpx.MockTransport(handler)
+    [result] = await fetch_all(manifest_path, cache, transport=transport)
+
+    assert result.status == "fetched"
+    md = (cache / "pdf-one.md").read_text(encoding="utf-8")
+    assert "client money segregation" in md
+    assert "second page about CASS 7" in md
+
+    meta = json.loads((cache / "pdf-one.meta.json").read_text(encoding="utf-8"))
+    assert meta["sha256"] == hashlib.sha256(pdf_bytes).hexdigest()
+    assert meta["format"] == "pdf"
+
+
+async def test_fetches_pdf_via_url_suffix_when_content_type_generic(
+    tmp_path: Path, make_pdf: Callable[[list[str]], bytes]
+) -> None:
+    """Content-Type is octet-stream (generic); URL ends .pdf — must still parse."""
+    pdf_bytes = make_pdf(["only one page of pdf body text"])
+    manifest_path = _write_manifest(tmp_path, _pdf_manifest())
+    cache = tmp_path / ".cache"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content=pdf_bytes, headers={"content-type": "application/octet-stream"}
+        )
+
+    transport = httpx.MockTransport(handler)
+    [result] = await fetch_all(manifest_path, cache, transport=transport)
+
+    assert result.status == "fetched"
+    md = (cache / "pdf-one.md").read_text(encoding="utf-8")
+    assert "only one page of pdf body text" in md
+
+
+async def test_pdf_pages_separated_with_horizontal_rules_and_markers(
+    tmp_path: Path, make_pdf: Callable[[list[str]], bytes]
+) -> None:
+    """Three pages: HR appears N-1 times; one page-N marker appears per page."""
+    pdf_bytes = make_pdf(["alpha body", "beta body", "gamma body"])
+    manifest_path = _write_manifest(tmp_path, _pdf_manifest())
+    cache = tmp_path / ".cache"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=pdf_bytes, headers=PDF_HEADERS)
+
+    transport = httpx.MockTransport(handler)
+    await fetch_all(manifest_path, cache, transport=transport)
+
+    md = (cache / "pdf-one.md").read_text(encoding="utf-8")
+    assert md.count("\n\n---\n\n") == 2  # 3 pages, 2 separators
+    assert "<!-- page 1 -->" in md
+    assert "<!-- page 2 -->" in md
+    assert "<!-- page 3 -->" in md
+    assert "<!-- page 4 -->" not in md
+
+
+async def test_pdf_idempotent_when_hash_unchanged(
+    tmp_path: Path, make_pdf: Callable[[list[str]], bytes]
+) -> None:
+    pdf_bytes = make_pdf(["single page idempotence test body"])
+    manifest_path = _write_manifest(tmp_path, _pdf_manifest())
+    cache = tmp_path / ".cache"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=pdf_bytes, headers=PDF_HEADERS)
+
+    transport = httpx.MockTransport(handler)
+
+    [first] = await fetch_all(manifest_path, cache, transport=transport)
+    assert first.status == "fetched"
+
+    md_path = cache / "pdf-one.md"
+    meta_path = cache / "pdf-one.meta.json"
+    md_mtime = md_path.stat().st_mtime_ns
+    meta_mtime = meta_path.stat().st_mtime_ns
+
+    [second] = await fetch_all(manifest_path, cache, transport=transport)
+    assert second.status == "unchanged"
+    assert second.sha256 == first.sha256
+    assert md_path.stat().st_mtime_ns == md_mtime
+    assert meta_path.stat().st_mtime_ns == meta_mtime
+
+
+async def test_corrupt_pdf_returns_failed_not_crash(tmp_path: Path) -> None:
+    """Body is not a valid PDF; pypdf raises; pipeline must not abort."""
+    manifest_path = _write_manifest(tmp_path, _pdf_manifest())
+    cache = tmp_path / ".cache"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content=b"this is definitely not a pdf", headers=PDF_HEADERS
+        )
+
+    transport = httpx.MockTransport(handler)
+    [result] = await fetch_all(manifest_path, cache, transport=transport)
+
+    assert result.status == "failed"
+    assert result.message and "pdf" in result.message.lower()
+    assert not (cache / "pdf-one.md").exists()
+    assert not (cache / "pdf-one.meta.json").exists()
+
+
+async def test_pdf_partial_page_failure_emits_remaining(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    make_pdf: Callable[[list[str]], bytes],
+) -> None:
+    """One page raises during extract; the other survives; result is fetched."""
+    pdf_bytes = make_pdf(["page one good text", "page two good text"])
+
+    real_PdfReader = fetch_mod.pypdf.PdfReader
+
+    class FlakyPage:
+        def __init__(self, real: Any, idx: int) -> None:
+            self._real = real
+            self._idx = idx
+
+        def extract_text(self) -> str:
+            if self._idx == 0:
+                raise RuntimeError("simulated page-1 extract failure")
+            text: str = self._real.extract_text()
+            return text
+
+    class FlakyReader:
+        def __init__(self, stream: Any) -> None:
+            self._real = real_PdfReader(stream)
+
+        @property
+        def pages(self) -> list[FlakyPage]:
+            return [FlakyPage(p, i) for i, p in enumerate(self._real.pages)]
+
+    monkeypatch.setattr(fetch_mod.pypdf, "PdfReader", FlakyReader)
+
+    manifest_path = _write_manifest(tmp_path, _pdf_manifest())
+    cache = tmp_path / ".cache"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=pdf_bytes, headers=PDF_HEADERS)
+
+    transport = httpx.MockTransport(handler)
+    [result] = await fetch_all(manifest_path, cache, transport=transport)
+
+    assert result.status == "fetched"
+    md = (cache / "pdf-one.md").read_text(encoding="utf-8")
+    assert "page two good text" in md
+    assert "page one good text" not in md
+    assert "<!-- page 2 -->" in md  # surviving page numbered correctly
+    assert "<!-- page 1 -->" not in md
+
+
+# ---------------------------------------------------------------------------
 # .fetched.jsonl index
 # ---------------------------------------------------------------------------
 
 
-async def test_fetched_jsonl_lists_only_consumable_sources(tmp_path: Path) -> None:
+async def test_fetched_jsonl_lists_only_consumable_sources(
+    tmp_path: Path, make_pdf: Callable[[list[str]], bytes]
+) -> None:
     body = (
         "default_tenant_id: demo\n"
         "sources:\n"
@@ -334,7 +494,7 @@ async def test_fetched_jsonl_lists_only_consumable_sources(tmp_path: Path) -> No
         "    url: https://example.test/bad\n"
         "    format: html\n"
         "    licence_url: https://example.test/l\n"
-        "  - id: pdf-skip\n"
+        "  - id: pdf-good\n"
         '    title: "PDF"\n'
         "    url: https://example.test/p.pdf\n"
         "    format: pdf\n"
@@ -342,10 +502,13 @@ async def test_fetched_jsonl_lists_only_consumable_sources(tmp_path: Path) -> No
     )
     manifest_path = _write_manifest(tmp_path, body)
     cache = tmp_path / ".cache"
+    pdf_bytes = make_pdf(["pdf body content for the consumable index test"])
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/bad":
             return httpx.Response(404)
+        if request.url.path.endswith(".pdf"):
+            return httpx.Response(200, content=pdf_bytes, headers=PDF_HEADERS)
         return httpx.Response(200, content=HTML_BODY)
 
     transport = httpx.MockTransport(handler)
@@ -357,14 +520,14 @@ async def test_fetched_jsonl_lists_only_consumable_sources(tmp_path: Path) -> No
     lines = [line for line in index_path.read_text().splitlines() if line.strip()]
     records = [FetchedRecord.model_validate_json(line) for line in lines]
 
-    ids = {r.id for r in records}
-    assert ids == {"html-ok"}  # bad/failed and pdf-skipped both omitted
+    by_id = {r.id: r for r in records}
+    assert set(by_id) == {"html-ok", "pdf-good"}  # 404 omitted, both formats kept
 
-    [ok] = records
-    assert ok.tenant_id == "demo"
-    assert ok.format == "html"
-    assert ok.md_path == "html-ok.md"
-    assert ok.sha256  # populated, not empty
+    assert by_id["html-ok"].format == "html"
+    assert by_id["html-ok"].md_path == "html-ok.md"
+    assert by_id["pdf-good"].format == "pdf"
+    assert by_id["pdf-good"].md_path == "pdf-good.md"
+    assert all(r.tenant_id == "demo" and r.sha256 for r in records)
 
 
 async def test_fetched_jsonl_includes_unchanged_on_rerun(tmp_path: Path) -> None:
@@ -414,12 +577,6 @@ def test_all_failed_raises() -> None:
     results = [_result("failed", id=f"bad-{i}") for i in range(3)]
     with pytest.raises(RuntimeError, match="all 3 sources failed"):
         _summarise_and_report(results)
-
-
-def test_only_skipped_pdfs_does_not_raise() -> None:
-    """A manifest of only PDF entries is a no-op pipeline, not an error."""
-    results = [_result("skipped_pdf", id=f"p-{i}") for i in range(2)]
-    _summarise_and_report(results)  # must not raise
 
 
 def test_only_unchanged_does_not_raise() -> None:
