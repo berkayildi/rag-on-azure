@@ -48,6 +48,10 @@ make up                      # Day 5+: provision + deploy image (azd up)
 make down                    # azd down --purge --force, with confirmation countdown
 ```
 
+### Local dev tools
+
+Generate a dev JWT for local API testing: `TOKEN=$(python scripts/mint-token.py --tenant-id demo)`. Pass via `Authorization: Bearer $TOKEN`. The token is unsigned (`alg=none`) and only useful while `auth.py` runs in dev mode; Day 6 hardens production verification but local minting stays.
+
 ## Code conventions
 
 - **Python 3.12**, type-hinted, `mypy --strict` clean
