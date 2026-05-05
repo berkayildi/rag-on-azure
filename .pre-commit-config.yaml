@@ -41,6 +41,7 @@ repos:
           - openai>=1.50,<2
           - fastapi>=0.115,<1
           - pyjwt>=2.9,<3
+          - langgraph>=0.2,<1
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2

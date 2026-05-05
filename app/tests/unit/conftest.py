@@ -10,12 +10,22 @@ It honours simple OData ``field eq 'value'`` clauses joined by ``and``
 because that's exactly what ``_build_filter`` produces — the parser
 deliberately rejects anything more exotic so we don't accidentally let
 a more permissive parser hide a bug in real filter composition.
+
+``FakeLLMClient`` is the ``LLMClient``-Protocol stand-in used by the
+graph-node unit tests. ``complete()`` returns whatever the test queues
+into ``complete_responses`` (popped FIFO); ``embed()`` returns
+deterministic canned vectors. Calls are recorded so tests can assert
+prompt + schema wiring.
 """
 
 from __future__ import annotations
 
 import re
 from typing import Any
+
+from pydantic import BaseModel
+
+from rag_on_azure.models import Message
 
 
 class _FakeAsyncIterator:
@@ -118,3 +128,41 @@ class FakeSearchClient:
     async def close(self) -> None:
         self.closed = True
         self.close_calls += 1
+
+
+class FakeLLMClient:
+    """In-memory LLMClient stand-in for graph-node unit tests.
+
+    ``complete_responses`` is a FIFO queue: each call to ``complete()``
+    pops one item. This lets a test set up a multi-step interaction
+    (e.g. a fabricated-citation retry) by queuing two responses.
+    ``embed()`` returns deterministic canned vectors of ``embed_dim``
+    floats — content doesn't matter to the search-client boundary
+    because the FakeSearchClient ignores vectors.
+    """
+
+    def __init__(
+        self,
+        complete_responses: list[Any] | None = None,
+        embed_dim: int = 1536,
+    ) -> None:
+        self._complete_responses: list[Any] = list(complete_responses or [])
+        self._embed_dim = embed_dim
+        self.complete_calls: list[dict[str, Any]] = []
+        self.embed_calls: list[list[str]] = []
+
+    async def complete(
+        self,
+        messages: list[Message],
+        schema: type[BaseModel] | None = None,
+    ) -> Any:
+        self.complete_calls.append({"messages": list(messages), "schema": schema})
+        if not self._complete_responses:
+            raise RuntimeError(
+                "FakeLLMClient: no complete_responses queued for this call"
+            )
+        return self._complete_responses.pop(0)
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.embed_calls.append(list(texts))
+        return [[0.1] * self._embed_dim for _ in texts]
