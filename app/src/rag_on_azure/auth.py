@@ -32,6 +32,7 @@ import jwt
 from fastapi import Header, HTTPException, status
 
 from rag_on_azure.api.schemas import TenantContext
+from rag_on_azure.settings import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +53,21 @@ def _decode_unverified(token: str) -> dict[str, Any]:
 async def get_current_tenant(
     authorization: Annotated[str | None, Header()] = None,
 ) -> TenantContext:
+    # Defence in depth: even if this dev-mode dependency is shipped,
+    # ENABLE_DEV_AUTH must be explicitly set to engage the unsigned
+    # decode path. Default-False means an accidental prod ship of
+    # this code refuses every request rather than trusting unsigned
+    # tokens. Day 6 production verification replaces this entire
+    # branch.
+    if not get_settings().enable_dev_auth:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Auth is not configured. Set ENABLE_DEV_AUTH=true for "
+                "local dev; production verification arrives in Day 6."
+            ),
+        )
+
     if authorization is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
