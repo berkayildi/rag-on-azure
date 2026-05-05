@@ -46,8 +46,8 @@ param keyVaultUri string
 @description('Logical name of the JWT signing key secret in Key Vault.')
 param jwtSigningKeySecretName string = 'jwt-signing-key'
 
-@description('Container image. Day 2 uses an MCR placeholder; the FastAPI image lands in CI from Day 5 onwards.')
-param containerImage string = 'mcr.microsoft.com/k8se/quickstart:latest'
+@description('Container image. Day 5 swaps from the MCR placeholder to the GHCR image built by .github/workflows/build-image.yml. Day 7 CI will pin to immutable sha-<short> tags.')
+param containerImage string = 'ghcr.io/berkayildi/rag-on-azure:latest-dev'
 
 @description('Minimum replica count. MUST stay at 0 in dev to preserve scale-to-zero.')
 @minValue(0)
@@ -148,6 +148,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               value: searchEndpoint
             }
             {
+              name: 'AZURE_SEARCH_INDEX_NAME'
+              value: 'corpus'
+            }
+            {
               name: 'AZURE_OPENAI_ENDPOINT'
               value: openaiEndpoint
             }
@@ -166,6 +170,14 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'JWT_SIGNING_KEY_REF'
               value: '${keyVaultUri}secrets/${jwtSigningKeySecretName}'
+            }
+            {
+              name: 'ENABLE_DEV_AUTH'
+              value: 'true'
+            }
+            {
+              name: 'LOG_LEVEL'
+              value: 'INFO'
             }
           ]
         }
