@@ -115,6 +115,10 @@ Stop and ask the user before proceeding if:
 - A change would touch `llm-benchmarks` source code beyond writing artefact files
 - An instruction would put personal data, real secrets, or proprietary info into a file or commit
 
+## Known limitations
+
+Docker image dependency installation uses `pyproject.toml` ranges, not a lockfile. Same-commit reproducibility holds within a transitive-version window. Add `uv lock` + lockfile install if reproducibility becomes audit-critical.
+
 ## Related projects
 
 - `mcp-llm-eval` — evaluation engine, consumed from PyPI at `>=0.7.0,<0.8.0`. Never modified from this repo.

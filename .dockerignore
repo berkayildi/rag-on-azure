@@ -1,0 +1,65 @@
+# .dockerignore — excludes everything not needed in the app image.
+# Build context is repo root; this trims it down dramatically and adds
+# a defence-in-depth boundary around .env files and other secrets.
+
+# Version control + tooling
+.git/
+.github/
+.gitignore
+.gitleaks.toml
+.pre-commit-config.yaml
+
+# Python build/test caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Environment files (defence in depth — already gitignored)
+.env
+.env.*
+
+# Repo dirs not needed in the app image
+infra/
+docs/
+eval/
+ingest/
+scripts/
+app/tests/
+
+# Top-level docs and tooling
+*.md
+Makefile
+azure.yaml
+release-please-config.json
+.release-please-manifest.json
+
+# Tool state directories
+.azure/
+.claude/
+.codex/
+
+# Build outputs
+build/
+dist/
+*.tar
+*.tgz
+*.zip
