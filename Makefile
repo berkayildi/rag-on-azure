@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help init fmt validate plan apply deploy up down outputs logs test lint precommit clean ingest
+.PHONY: help init fmt validate plan apply deploy up down outputs logs test lint precommit clean ingest docker-build docker-run docker-smoke
 
 BICEP_FILES := $(shell find infra -name '*.bicep' -type f 2>/dev/null)
 
@@ -93,3 +93,28 @@ ingest: ## Run the corpus pipeline (fetch -> chunk -> index)
 clean: ## Remove caches and build artefacts
 	@find . -type d \( -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache -o -name .ruff_cache -o -name build -o -name dist -o -name '*.egg-info' \) -prune -exec rm -rf {} + 2>/dev/null || true
 	@echo "==> cleaned"
+
+docker-build: ## Build the rag-on-azure image locally (repo-root context)
+	@echo "==> docker build -f app/Dockerfile -t rag-on-azure:local ."
+	@docker build -f app/Dockerfile -t rag-on-azure:local .
+
+docker-run: ## Run the local image on port 8000 with stub env vars
+	@echo "==> docker run -d --name rag-on-azure-local -p 8000:8000 rag-on-azure:local"
+	@docker run --rm -d --name rag-on-azure-local -p 8000:8000 \
+		-e AZURE_OPENAI_ENDPOINT=https://test.openai.azure.com/ \
+		-e AZURE_OPENAI_EMBEDDING_DEPLOYMENT=embedding \
+		-e AZURE_OPENAI_CHAT_DEPLOYMENT=chat \
+		-e AZURE_SEARCH_ENDPOINT=https://test.search.windows.net \
+		-e ENABLE_DEV_AUTH=true \
+		rag-on-azure:local >/dev/null
+	@echo "==> container started; stop with: docker stop rag-on-azure-local"
+
+docker-smoke: docker-build ## Build + run + curl /healthz + stop (Phase E smoke loop)
+	@$(MAKE) --no-print-directory docker-run
+	@sleep 2
+	@echo "==> curl http://127.0.0.1:8000/healthz"
+	@curl --fail -sS http://127.0.0.1:8000/healthz; STATUS=$$?; \
+		echo ""; \
+		docker stop rag-on-azure-local >/dev/null 2>&1 || true; \
+		if [ $$STATUS -eq 0 ]; then echo "==> docker-smoke OK"; else echo "==> docker-smoke FAILED ($$STATUS)"; fi; \
+		exit $$STATUS
