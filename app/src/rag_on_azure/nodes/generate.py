@@ -14,6 +14,21 @@ Citation contract (audit-grade):
     the contract; we refuse to return a hallucinated answer.
 
 Hard cap of two LLM calls per ``/query``. No third attempt.
+
+Empty-retrieval short-circuit (Phase D defence-in-depth):
+
+  - If ``state.retrieved_chunks`` is empty, the node returns
+    ``EMPTY_RETRIEVAL_ANSWER`` directly without calling the LLM.
+    Discovered during Phase D live testing: gpt-4o ignored the
+    "say so explicitly" prompt instruction and substituted Consumer
+    Duty prose from training data when given empty context, even
+    though no chunks were retrieved (citations were correctly empty,
+    so the §5.3 retrieval boundary held — but the generation step
+    was producing content the user shouldn't see).
+  - This short-circuit mirrors the retrieval boundary's
+    type-system + audit-test pattern at the generation boundary:
+    by construction, no path exists where empty retrieval produces
+    LLM-generated content.
 """
 
 from __future__ import annotations
@@ -41,6 +56,9 @@ class CitationContractError(RuntimeError):
 class Answer(BaseModel):
     text: str
     cited_chunk_ids: list[str]
+
+
+EMPTY_RETRIEVAL_ANSWER = "No relevant context found for this tenant."
 
 
 _BASE_PROMPT = (
@@ -75,6 +93,15 @@ def make_generate_node(
 ) -> Callable[[GraphState], Awaitable[dict[str, Any]]]:
     async def generate(state: GraphState) -> dict[str, Any]:
         chunks = state.retrieved_chunks
+        if not chunks:
+            log.info(
+                "generate: short-circuiting on empty retrieval "
+                "(tenant=%s, question=%r)",
+                state.tenant_id,
+                state.question[:50],
+            )
+            return {"answer": EMPTY_RETRIEVAL_ANSWER, "citations": []}
+
         valid_ids = {c.id for c in chunks}
         chunks_by_id = {c.id: c for c in chunks}
         user_message = (

@@ -6,6 +6,7 @@ import pytest
 
 from rag_on_azure.models import Chunk
 from rag_on_azure.nodes.generate import (
+    EMPTY_RETRIEVAL_ANSWER,
     Answer,
     CitationContractError,
     make_generate_node,
@@ -124,6 +125,33 @@ async def test_generate_caps_at_two_llm_calls_even_on_retry() -> None:
     with pytest.raises(CitationContractError):
         await node(state)
     assert len(llm.complete_calls) == 2
+
+
+async def test_generate_short_circuits_on_empty_retrieval() -> None:
+    """Phase D defence-in-depth: when retrieve returns no chunks, the
+    LLM is never called. Mirrors the retrieval boundary's audit-grade
+    pattern at the generation boundary — by construction, no path
+    exists where empty retrieval produces LLM-generated content.
+
+    Discovered live: gpt-4o ignored the "say so explicitly" prompt
+    instruction and produced Consumer Duty prose from training data
+    when given empty context. Citations were correctly empty (§5.3
+    held), but the generated text was undesirable — the LLM had
+    nothing to ground in. Short-circuit forecloses the entire path.
+    """
+    llm = FakeLLMClient(
+        complete_responses=[
+            Answer(text="should not be reached", cited_chunk_ids=[]),
+        ]
+    )
+    node = make_generate_node(llm)
+    state = GraphState(question="any question", tenant_id="demo", retrieved_chunks=[])
+
+    update = await node(state)
+
+    assert update["answer"] == EMPTY_RETRIEVAL_ANSWER
+    assert update["citations"] == []
+    assert len(llm.complete_calls) == 0
 
 
 async def test_generate_accepts_empty_cited_chunk_ids() -> None:
