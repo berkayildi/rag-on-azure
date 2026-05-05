@@ -9,9 +9,11 @@ description = "FastAPI + LangGraph RAG application for rag-on-azure"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Berkay Yildirim" }]
-# Dependency scope is intentionally narrow: just the canonical adapter slice
-# (LLMClient, TenantAwareSearchClient). FastAPI / LangGraph deps land when
-# their consumers (api.py, graph.py) land — see docs/design/rag-on-azure.md §3.
+# Dependency scope grows with each phase. The canonical adapter slice
+# (LLMClient, TenantAwareSearchClient) needs azure-* + openai + pydantic.
+# Day 5 Phase A lands the API contract + auth dependency, which pulls in
+# fastapi and pyjwt. LangGraph lands with the graph nodes in Phase B.
+# See docs/design/rag-on-azure.md §3.
 dependencies = [
     "azure-identity>=1.18,<2",
     "azure-search-documents>=11.5,<12",
@@ -22,6 +24,8 @@ dependencies = [
     "openai>=1.50,<2",
     "pydantic>=2.9,<3",
     "tenacity>=9.0,<10",
+    "fastapi>=0.115,<1",
+    "pyjwt>=2.9,<3",
 ]
 
 [project.optional-dependencies]
