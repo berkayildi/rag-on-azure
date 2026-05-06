@@ -42,6 +42,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "ENABLE_DEV_AUTH=true — JWT signature verification is OFF. "
             "Local dev only; never set this in production."
         )
+    else:
+        log.info(
+            "JWT signature verification ENABLED (RS256, key fetched from Key Vault)"
+        )
 
     llm = AzureOpenAIClient(
         endpoint=settings.azure_openai_endpoint,

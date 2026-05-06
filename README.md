@@ -21,6 +21,8 @@ make down      # tear down (azd down --purge --force, with countdown)
 
 Run `make help` for the full target list, or read [`Makefile`](Makefile) directly.
 
+For local development, copy [`.env.example`](.env.example) to `.env` and fill in real endpoints. See [`AGENTS.md`](AGENTS.md) for the auth-toggle behaviour and the one-time RSA keypair setup used by `scripts/mint-token.py`.
+
 ## Licence
 
 Released under the [MIT Licence](LICENSE).

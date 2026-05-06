@@ -64,6 +64,10 @@ scripts/verify_*.py
 .env.*
 !.env.example
 
+# Dev-only RSA keypair for JWT minting — never committed.
+# Anyone forking generates their own via the steps in AGENTS.md.
+scripts/dev-keys/
+
 # Azure Developer CLI
 .azure/
 

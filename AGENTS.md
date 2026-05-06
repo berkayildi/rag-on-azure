@@ -50,7 +50,49 @@ make down                    # azd down --purge --force, with confirmation count
 
 ### Local dev tools
 
-Generate a dev JWT for local API testing: `TOKEN=$(python scripts/mint-token.py --tenant-id demo)`. Pass via `Authorization: Bearer $TOKEN`. The token is unsigned (`alg=none`) and only useful while `auth.py` runs in dev mode; Day 6 hardens production verification but local minting stays.
+Copy `.env.example` to `.env` and fill in real endpoints. The `.env` file is gitignored; only `.env.example` is committed.
+
+The auth dependency has two modes, gated by `ENABLE_DEV_AUTH`:
+
+- `ENABLE_DEV_AUTH=true` — unsigned tokens (`alg=none`) decode without signature verification. Local-dev convenience.
+- `ENABLE_DEV_AUTH=false` (production) — RS256 signature verification against the public PEM held in Key Vault as the `jwt-signing-key` secret.
+
+**Mint an unsigned token (dev-mode environments only):**
+
+```bash
+TOKEN=$(python scripts/mint-token.py --tenant-id demo)
+```
+
+Stderr emits a warning that the token is unsigned. Stdout still gets the token so `$()` capture works.
+
+**One-time RSA keypair setup (for verified-mode testing or production):**
+
+```bash
+mkdir -p scripts/dev-keys
+openssl genrsa -out scripts/dev-keys/jwt-signing.private.pem 2048
+openssl rsa -in scripts/dev-keys/jwt-signing.private.pem -pubout -out scripts/dev-keys/jwt-signing.public.pem
+```
+
+The whole `scripts/dev-keys/` directory is gitignored — anyone forking generates their own keypair. The private key never leaves the developer's machine; only the public PEM is uploaded to Key Vault.
+
+**Push the public key to Key Vault (one-time, before flipping the deployed CA to `ENABLE_DEV_AUTH=false`):**
+
+```bash
+KV_NAME=$(azd env get-value AZURE_KEY_VAULT_NAME)
+az keyvault secret set \
+  --vault-name "$KV_NAME" \
+  --name jwt-signing-key \
+  --file scripts/dev-keys/jwt-signing.public.pem
+```
+
+**Mint a signed token for verified-mode testing:**
+
+```bash
+TOKEN=$(python scripts/mint-token.py --tenant-id demo \
+  --signing-key-path scripts/dev-keys/jwt-signing.private.pem)
+```
+
+Pass via `Authorization: Bearer $TOKEN` against an environment running with `ENABLE_DEV_AUTH=false`. The verifier fetches the matching public PEM from Key Vault, caches it for five minutes, and validates the signature.
 
 ## Code conventions
 
