@@ -221,7 +221,7 @@ def test_query_requires_auth() -> None:
     assert response.status_code == 401
 
 
-def test_query_returns_rag_response_with_citations() -> None:
+def test_query_dev_mode_returns_rag_response_with_citations() -> None:
     client, _, _ = _wire(
         complete_responses=[
             QueryRewrite(rewritten_query="Client Assets Sourcebook 7"),
@@ -245,7 +245,7 @@ def test_query_returns_rag_response_with_citations() -> None:
     assert body["citations"][0]["source"] == "fca-cass-7"
 
 
-def test_query_propagates_tenant_id_from_jwt_into_search_filter() -> None:
+def test_query_dev_mode_propagates_tenant_id_to_search_filter() -> None:
     """End-to-end §5.3 evidence at the API boundary: tenant_id flows
     JWT → TenantContext → GraphState → search filter, never from body."""
     client, _, fake_search = _wire(
@@ -267,7 +267,7 @@ def test_query_propagates_tenant_id_from_jwt_into_search_filter() -> None:
     assert fake_search.search_calls[0]["filter"].startswith("tenant_id eq 'acme'")
 
 
-def test_query_502_on_citation_contract_error() -> None:
+def test_query_dev_mode_502_on_citation_contract_error() -> None:
     """Two consecutive fabricated-citation responses (one initial + one
     retry) trip CitationContractError; the API returns 502."""
     client, _, _ = _wire(
@@ -290,7 +290,7 @@ def test_query_502_on_citation_contract_error() -> None:
     assert response.json()["detail"] == "upstream model failed citation contract"
 
 
-def test_query_400_on_invalid_tenant_id_in_jwt() -> None:
+def test_query_dev_mode_400_on_invalid_tenant_id_in_jwt() -> None:
     """A JWT carrying a tenant_id that fails the search client's
     ``^[a-z0-9-]+$`` validation (e.g. a space) is a 400 — the request
     is malformed at the auth boundary even though the JWT itself
@@ -324,7 +324,7 @@ def test_ingest_requires_auth() -> None:
     assert response.status_code == 401
 
 
-def test_ingest_requires_admin_claim() -> None:
+def test_ingest_dev_mode_requires_admin_claim() -> None:
     """A valid token without ``tenant_admin`` is rejected by the admin
     gate with 403; the 501 stub is never reached."""
     app = create_app()
@@ -335,7 +335,7 @@ def test_ingest_requires_admin_claim() -> None:
     assert response.json()["detail"] == "admin claim required"
 
 
-def test_ingest_admin_token_passes_gate_returns_501() -> None:
+def test_ingest_dev_mode_admin_token_passes_gate_returns_501() -> None:
     """Admin token passes the gate; the route itself returns 501 — the
     auth gate is the Day 6 deliverable, pipeline lands Day 7."""
     app = create_app()
