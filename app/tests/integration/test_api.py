@@ -76,6 +76,45 @@ def _wire(
     return TestClient(app), llm, fake_search
 
 
+def _wire_prod_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    rsa_keypair: tuple[str, str],
+    complete_responses: list[Any] | None = None,
+    docs: list[dict[str, Any]] | None = None,
+) -> tuple[TestClient, FakeLLMClient, FakeSearchClient, str]:
+    """``_wire`` variant that engages production signature verification:
+    flips ``ENABLE_DEV_AUTH=false``, busts the settings cache, injects a
+    ``FakeKeyVaultClient`` holding the public PEM via the
+    ``resolve_key_vault`` dep override. Returns the same triple as
+    ``_wire`` plus the matching private PEM so the caller can mint
+    RS256-signed tokens that the verifier will accept.
+    """
+    monkeypatch.setenv("ENABLE_DEV_AUTH", "false")
+    get_settings.cache_clear()
+    private_pem, public_pem = rsa_keypair
+    fake_kv = FakeKeyVaultClient(signing_key=public_pem)
+
+    fake_search = FakeSearchClient(docs=docs or [])
+    search_client = TenantAwareSearchClient(inner=fake_search)  # type: ignore[arg-type]
+    llm = FakeLLMClient(complete_responses=complete_responses or [])
+    graph = build_graph(llm, search_client)
+
+    app = create_app()
+    app.dependency_overrides[get_graph] = lambda: graph
+    app.dependency_overrides[resolve_key_vault] = lambda: fake_kv
+    return TestClient(app), llm, fake_search, private_pem
+
+
+def _mint_signed(claims: dict[str, Any], private_pem: str) -> str:
+    """Mint an RS256 JWT against the supplied private PEM. ``iat`` and
+    ``exp`` are auto-populated (60s window) so callers only specify the
+    auth-relevant claims (``sub``, ``tenant_id``, optionally ``tenant_admin``).
+    """
+    now = int(time.time())
+    full_claims: dict[str, Any] = {"iat": now, "exp": now + 60, **claims}
+    return jwt.encode(full_claims, private_pem, algorithm="RS256")
+
+
 def test_healthz_returns_200() -> None:
     app = create_app()
     client = TestClient(app)
@@ -341,3 +380,98 @@ def test_ingest_rejects_unsigned_when_dev_auth_off(
     )
     response = client.post("/ingest", headers={"Authorization": f"Bearer {unsigned}"})
     assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Prod-mode (ENABLE_DEV_AUTH=false) end-to-end coverage — Phase 4
+# ---------------------------------------------------------------------------
+#
+# These tests exercise the full chain with signature verification engaged:
+# signed RS256 token → verifier fetches public PEM from the fake KV →
+# decoded claims drive TenantContext → graph state → search filter (or,
+# for /ingest, the admin gate). They are the integration-level proof
+# that Phases 1-3 compose correctly under production semantics.
+
+
+def test_query_under_prod_mode_propagates_tenant_id_to_search_filter(
+    monkeypatch: pytest.MonkeyPatch, rsa_keypair: tuple[str, str]
+) -> None:
+    """The §5.3 audit invariant under prod-mode: tenant_id flows
+    JWT → TenantContext → GraphState → search filter, with full RS256
+    signature verification engaged above the boundary."""
+    client, _, fake_search, private_pem = _wire_prod_mode(
+        monkeypatch,
+        rsa_keypair,
+        complete_responses=[
+            QueryRewrite(rewritten_query="x"),
+            Answer(text="answer", cited_chunk_ids=[]),
+        ],
+        docs=[_doc("c1", tenant_id="demo")],
+    )
+    token = _mint_signed({"sub": "u", "tenant_id": "demo"}, private_pem)
+
+    response = client.post(
+        "/query",
+        json={"question": "x"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert fake_search.search_calls[0]["filter"].startswith("tenant_id eq 'demo'")
+
+
+def test_query_under_prod_mode_cross_tenant_attempt_isolated(
+    monkeypatch: pytest.MonkeyPatch, rsa_keypair: tuple[str, str]
+) -> None:
+    """Two chunks share the fake index — one for tenant 'demo', one for
+    tenant 'other'. A request authenticated as 'demo' must only see and
+    cite the demo chunk. Mirrors the unit-level audit-grade
+    ``test_cross_tenant_leak_prevented`` at the API edge under prod-mode
+    signature verification."""
+    client, _, fake_search, private_pem = _wire_prod_mode(
+        monkeypatch,
+        rsa_keypair,
+        complete_responses=[
+            QueryRewrite(rewritten_query="x"),
+            Answer(text="demo content", cited_chunk_ids=["demo-chunk"]),
+        ],
+        docs=[
+            _doc("demo-chunk", tenant_id="demo"),
+            _doc("other-chunk", tenant_id="other"),
+        ],
+    )
+    token = _mint_signed({"sub": "u", "tenant_id": "demo"}, private_pem)
+
+    response = client.post(
+        "/query",
+        json={"question": "x"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    # Boundary evidence: the OData filter pinned tenant_id to demo.
+    assert fake_search.search_calls[0]["filter"].startswith("tenant_id eq 'demo'")
+    # Surface evidence: no other-tenant chunk leaked through citations.
+    citation_ids = {c["chunk_id"] for c in response.json()["citations"]}
+    assert citation_ids == {"demo-chunk"}
+
+
+def test_ingest_admin_token_under_prod_mode_returns_501(
+    monkeypatch: pytest.MonkeyPatch, rsa_keypair: tuple[str, str]
+) -> None:
+    """Full chain under prod-mode for the admin route: signed token →
+    signature verified against KV-fetched public PEM → tenant_admin
+    claim accepted by ``get_current_admin`` → route reaches its 501
+    stub. No layer is short-circuited."""
+    client, _, _, private_pem = _wire_prod_mode(monkeypatch, rsa_keypair)
+    token = _mint_signed(
+        {"sub": "u", "tenant_id": "demo", "tenant_admin": True},
+        private_pem,
+    )
+
+    response = client.post(
+        "/ingest",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 501
