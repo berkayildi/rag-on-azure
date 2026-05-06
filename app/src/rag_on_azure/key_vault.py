@@ -26,6 +26,7 @@ from typing import Any
 from azure.core.credentials_async import AsyncTokenCredential
 from azure.identity.aio import DefaultAzureCredential
 from azure.keyvault.secrets.aio import SecretClient
+from cryptography.hazmat.primitives import serialization
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,14 @@ log = logging.getLogger(__name__)
 # spec, and a second env var would be ceremony without value.
 SIGNING_KEY_SECRET_NAME = "jwt-signing-key"
 DEFAULT_CACHE_TTL_S = 300.0
+
+
+class InvalidSigningKeyError(Exception):
+    """Raised when the Key Vault ``jwt-signing-key`` secret cannot be parsed
+    as a PEM public key. Surfacing during ``ping()`` means a corrupted
+    secret value fails the lifespan boot rather than letting /readyz
+    report green while every authenticated request 401s with PyJWT's
+    ``InvalidKeyError``."""
 
 
 class _TimedCache:
@@ -114,13 +123,26 @@ class KeyVaultClient:
         return secret.value or ""
 
     async def ping(self) -> None:
-        """Cheap readiness probe — credential + named secret both reachable.
+        """Cheap readiness probe — credential + named secret both reachable
+        AND the secret value parses as a PEM public key.
 
         Bypasses the cache deliberately: a stale cached value must not mask
         a degraded vault when the readiness probe is the very thing meant
-        to surface the degradation.
+        to surface the degradation. The PEM-shape check guards the
+        silent-failure mode where the secret exists but holds garbage
+        (e.g. a placeholder GUID, a truncated paste) — without it,
+        /readyz would report green while every authenticated request
+        401s on a key the JWT verifier cannot parse.
         """
-        await self._inner.get_secret(SIGNING_KEY_SECRET_NAME)
+        secret = await self._inner.get_secret(SIGNING_KEY_SECRET_NAME)
+        value = secret.value or ""
+        try:
+            serialization.load_pem_public_key(value.encode("utf-8"))
+        except (ValueError, TypeError) as exc:
+            raise InvalidSigningKeyError(
+                f"Key Vault secret {SIGNING_KEY_SECRET_NAME!r} did not "
+                "parse as a PEM public key"
+            ) from exc
 
     async def close(self) -> None:
         """Idempotent — safe to call twice."""
