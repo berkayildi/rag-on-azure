@@ -173,7 +173,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             }
             {
               name: 'ENABLE_DEV_AUTH'
-              value: 'true'
+              value: 'false'
             }
             {
               name: 'LOG_LEVEL'
