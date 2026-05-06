@@ -13,6 +13,11 @@ can distinguish "process alive" from "ready to serve". ``/metrics``
 ``/query`` is the only route that touches the graph. ``tenant_id``
 flows JWT → ``get_current_tenant`` → ``TenantContext`` → ``GraphState``;
 the request body never carries a tenant identifier (§5.3).
+
+``/ingest`` is admin-only (``tenant_admin`` JWT claim, enforced via
+``get_current_admin``). Day 6 ships the auth-gated route shape; the
+ingest pipeline invocation lands with the Day 7 ingest-CI work, so
+the route itself currently returns 501.
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ from fastapi.responses import JSONResponse
 from langgraph.graph.state import CompiledStateGraph
 
 from rag_on_azure.api.schemas import RagRequest, RagResponse, TenantContext
-from rag_on_azure.auth import get_current_tenant
+from rag_on_azure.auth import get_current_admin, get_current_tenant
 from rag_on_azure.nodes.generate import CitationContractError
 from rag_on_azure.state import GraphState
 
@@ -143,4 +148,20 @@ async def query(
         answer=final["answer"] or "",
         citations=final["citations"],
         metadata=final.get("metadata", {}),
+    )
+
+
+@router.post("/ingest")
+async def ingest(
+    ctx: Annotated[TenantContext, Depends(get_current_admin)],
+) -> dict[str, str]:
+    """Admin-only ingest trigger. Day 6 ships the auth gate; pipeline
+    invocation lands Day 7 with the ingest-CI work (§6)."""
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=(
+            "ingest pipeline invocation is not yet wired; the route + "
+            "tenant_admin gate are the Day 6 deliverable. Pipeline "
+            "invocation lands Day 7 — see docs/design/rag-on-azure.md §6."
+        ),
     )

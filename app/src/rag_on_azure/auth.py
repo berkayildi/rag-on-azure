@@ -22,10 +22,15 @@ Status code mapping:
   - 401 (Unauthorized) — credential is missing, malformed, or fails
     signature verification (wrong key, expired, missing required claim)
   - 403 (Forbidden) — credential decoded but lacks a valid
-    ``tenant_id`` claim
+    ``tenant_id`` claim, or (via ``get_current_admin``) lacks the
+    ``tenant_admin`` claim required for admin-only routes
   - 503 (Service Unavailable) — verifier itself is degraded (Key Vault
     fetch failed). Differentiates "your token is bad" from "we cannot
     currently check your token"; lets clients retry vs. re-auth
+
+``get_current_admin`` composes on top of ``get_current_tenant`` for
+admin-only routes (e.g. ``POST /ingest``): same auth surface, with an
+extra check that ``ctx.is_admin`` is True.
 """
 
 from __future__ import annotations
@@ -57,12 +62,15 @@ class _KeyProvider(Protocol):
     async def get_signing_key(self) -> str: ...
 
 
-def _resolve_key_vault(request: Request) -> _KeyProvider | None:
+def resolve_key_vault(request: Request) -> _KeyProvider | None:
     """FastAPI dep — pulls the KV client off ``app.state``.
 
     Co-located with the auth module rather than imported from
     ``api.routes`` to avoid a circular import (``api.routes`` imports
-    ``get_current_tenant`` from this module).
+    ``get_current_tenant`` from this module). Public so integration
+    tests can override it via ``app.dependency_overrides`` — same
+    convention as ``get_llm`` / ``get_search`` / ``get_key_vault`` in
+    ``api.routes``.
 
     Returns ``None`` if ``app.state`` has no ``key_vault`` attribute.
     Production lifespan always sets it; dev-mode tests construct the
@@ -105,7 +113,7 @@ async def _decode_verified(token: str, key_vault: _KeyProvider) -> dict[str, Any
 
 async def get_current_tenant(
     authorization: Annotated[str | None, Header()] = None,
-    key_vault: Annotated[_KeyProvider | None, Depends(_resolve_key_vault)] = None,
+    key_vault: Annotated[_KeyProvider | None, Depends(resolve_key_vault)] = None,
 ) -> TenantContext:
     if authorization is None:
         raise HTTPException(
@@ -153,3 +161,21 @@ async def get_current_tenant(
 
     is_admin = bool(claims.get("tenant_admin", False))
     return TenantContext(tenant_id=tenant_id, is_admin=is_admin)
+
+
+async def get_current_admin(
+    ctx: Annotated[TenantContext, Depends(get_current_tenant)],
+) -> TenantContext:
+    """Admin-only auth gate composed on top of ``get_current_tenant``.
+
+    Same auth surface (Bearer JWT, signature verification or unsigned
+    decode per ``ENABLE_DEV_AUTH``); requires ``tenant_admin=True`` in
+    the decoded claims. Used by ``POST /ingest`` and any future
+    admin-only routes.
+    """
+    if not ctx.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="admin claim required",
+        )
+    return ctx

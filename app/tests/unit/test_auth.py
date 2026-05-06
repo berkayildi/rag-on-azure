@@ -24,7 +24,8 @@ import jwt
 import pytest
 from fastapi import HTTPException
 
-from rag_on_azure.auth import get_current_tenant
+from rag_on_azure.api.schemas import TenantContext
+from rag_on_azure.auth import get_current_admin, get_current_tenant
 from rag_on_azure.settings import get_settings
 
 from .conftest import FakeKeyVaultClient
@@ -282,3 +283,22 @@ async def test_dev_mode_unsigned_token_works_when_enable_dev_auth_true(
     )
     assert ctx.tenant_id == "demo"
     assert fake_kv.get_signing_key_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# Admin gate (composes on top of get_current_tenant)
+# ---------------------------------------------------------------------------
+
+
+async def test_admin_dep_passes_when_admin_claim_true() -> None:
+    ctx = TenantContext(tenant_id="demo", is_admin=True)
+    result = await get_current_admin(ctx=ctx)
+    assert result is ctx
+
+
+async def test_admin_dep_403_when_admin_claim_false() -> None:
+    ctx = TenantContext(tenant_id="demo", is_admin=False)
+    with pytest.raises(HTTPException) as exc_info:
+        await get_current_admin(ctx=ctx)
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "admin claim required"

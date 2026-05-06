@@ -23,46 +23,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import BaseModel
 
 from rag_on_azure.models import Message
-
-
-def _generate_rsa_pem_pair() -> tuple[str, str]:
-    """Generate a fresh RSA-2048 keypair and return (private_pem, public_pem)
-    as PEM-encoded strings — what mint-token.py reads from disk and what
-    Key Vault holds in the ``jwt-signing-key`` secret."""
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    private_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode("utf-8")
-    public_pem = (
-        private_key.public_key()
-        .public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode("utf-8")
-    )
-    return private_pem, public_pem
-
-
-@pytest.fixture(scope="session")
-def rsa_keypair() -> tuple[str, str]:
-    """Session-scoped: 2048-bit RSA generation costs ~50ms; one keypair
-    serves every signature-verification test."""
-    return _generate_rsa_pem_pair()
-
-
-@pytest.fixture(scope="session")
-def rsa_keypair_other() -> tuple[str, str]:
-    """A second, distinct keypair for wrong-key signature-mismatch tests."""
-    return _generate_rsa_pem_pair()
 
 
 class _FakeAsyncIterator:

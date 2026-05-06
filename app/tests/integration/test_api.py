@@ -14,10 +14,15 @@ trigger) real Azure client construction.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import jwt
+import pytest
 from fastapi.testclient import TestClient
+
+from rag_on_azure.auth import resolve_key_vault
+from rag_on_azure.settings import get_settings
 
 from rag_on_azure.api.routes import get_graph, get_key_vault, get_llm, get_search
 from rag_on_azure.clients.search import TenantAwareSearchClient
@@ -264,3 +269,75 @@ def test_query_400_on_invalid_tenant_id_in_jwt() -> None:
     )
 
     assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# /ingest — admin-only route (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_requires_auth() -> None:
+    """No Authorization header → 401 from the auth boundary, before the
+    admin gate or the 501 stub is reached."""
+    app = create_app()
+    client = TestClient(app)
+    response = client.post("/ingest")
+    assert response.status_code == 401
+
+
+def test_ingest_requires_admin_claim() -> None:
+    """A valid token without ``tenant_admin`` is rejected by the admin
+    gate with 403; the 501 stub is never reached."""
+    app = create_app()
+    client = TestClient(app)
+    token = _mint({"sub": "u", "tenant_id": "demo"})  # no tenant_admin
+    response = client.post("/ingest", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+    assert response.json()["detail"] == "admin claim required"
+
+
+def test_ingest_admin_token_passes_gate_returns_501() -> None:
+    """Admin token passes the gate; the route itself returns 501 — the
+    auth gate is the Day 6 deliverable, pipeline lands Day 7."""
+    app = create_app()
+    client = TestClient(app)
+    token = _mint({"sub": "u", "tenant_id": "demo", "tenant_admin": True})
+    response = client.post("/ingest", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 501
+    detail = response.json()["detail"]
+    assert "not yet wired" in detail
+    assert "Day 7" in detail
+
+
+def test_ingest_rejects_unsigned_when_dev_auth_off(
+    monkeypatch: pytest.MonkeyPatch, rsa_keypair: tuple[str, str]
+) -> None:
+    """End-to-end proof that the admin gate composes correctly with
+    Phase 2 verification: under ``ENABLE_DEV_AUTH=false``, an unsigned
+    token carrying ``tenant_admin=True`` is still rejected at the
+    signature-verification layer (401) — admin claims do not bypass
+    the verifier."""
+    monkeypatch.setenv("ENABLE_DEV_AUTH", "false")
+    get_settings.cache_clear()
+
+    _, public_pem = rsa_keypair
+    fake_kv = FakeKeyVaultClient(signing_key=public_pem)
+
+    app = create_app()
+    app.dependency_overrides[resolve_key_vault] = lambda: fake_kv
+    client = TestClient(app)
+
+    now = int(time.time())
+    unsigned = jwt.encode(
+        {
+            "sub": "u",
+            "tenant_id": "demo",
+            "tenant_admin": True,
+            "iat": now,
+            "exp": now + 60,
+        },
+        key="",
+        algorithm="none",
+    )
+    response = client.post("/ingest", headers={"Authorization": f"Bearer {unsigned}"})
+    assert response.status_code == 401
