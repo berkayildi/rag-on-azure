@@ -222,6 +222,15 @@ class AzureOpenAIClient:
             "unreachable: AsyncRetrying exited without success or raise"
         )
 
+    async def ping(self) -> None:
+        """Cheap readiness probe — credential + endpoint reachable.
+
+        Calls ``models.list`` (a single GET against ``/openai/models``).
+        No token cost; surfaces auth, network, and quota-fenced
+        deployments as a single awaitable failure.
+        """
+        await self._inner.models.list()
+
     async def close(self) -> None:
         """Idempotent — safe to call twice."""
         if self._closed:

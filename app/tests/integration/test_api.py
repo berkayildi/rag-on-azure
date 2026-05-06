@@ -19,7 +19,7 @@ from typing import Any
 import jwt
 from fastapi.testclient import TestClient
 
-from rag_on_azure.api.routes import get_graph
+from rag_on_azure.api.routes import get_graph, get_llm, get_search
 from rag_on_azure.clients.search import TenantAwareSearchClient
 from rag_on_azure.graph import build_graph
 from rag_on_azure.main import create_app
@@ -27,6 +27,17 @@ from rag_on_azure.nodes.generate import Answer
 from rag_on_azure.nodes.understand import QueryRewrite
 
 from ..unit.conftest import FakeLLMClient, FakeSearchClient
+
+
+class _RaisingPing:
+    """Pingable test stub whose ``ping()`` raises a chosen exception."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    async def ping(self) -> None:
+        raise self._exc
+
 
 _DEV_KEY = "dev-only-not-a-secret-padded-32b"
 
@@ -66,6 +77,66 @@ def test_healthz_returns_200() -> None:
     response = client.get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_readyz_all_ok() -> None:
+    """Both checks succeed: real ``TenantAwareSearchClient.ping()`` reaches
+    ``FakeSearchClient.get_document_count``; ``FakeLLMClient.ping`` records
+    the call. Returns 200 + ``status: ready``."""
+    fake_llm = FakeLLMClient()
+    fake_search_inner = FakeSearchClient(docs=[])
+    search_client = TenantAwareSearchClient(inner=fake_search_inner)  # type: ignore[arg-type]
+
+    app = create_app()
+    app.dependency_overrides[get_llm] = lambda: fake_llm
+    app.dependency_overrides[get_search] = lambda: search_client
+    client = TestClient(app)
+
+    response = client.get("/readyz")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "checks": {"openai": "ok", "search": "ok"},
+    }
+    assert fake_llm.ping_calls == 1
+    assert fake_search_inner.get_document_count_calls == 1
+
+
+def test_readyz_partial_failure() -> None:
+    """One check fails → 503 + ``not_ready``; the failed check carries the
+    raised exception's type name; the healthy check still reports ``ok``."""
+    app = create_app()
+    app.dependency_overrides[get_llm] = lambda: FakeLLMClient()
+    app.dependency_overrides[get_search] = lambda: _RaisingPing(
+        RuntimeError("search down")
+    )
+    client = TestClient(app)
+
+    response = client.get("/readyz")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not_ready"
+    assert body["checks"]["openai"] == "ok"
+    assert body["checks"]["search"] == "failed: RuntimeError"
+
+
+def test_readyz_full_failure() -> None:
+    """Both checks raise → 503 with both checks marked failed by type name."""
+    app = create_app()
+    app.dependency_overrides[get_llm] = lambda: _RaisingPing(
+        ConnectionError("openai down")
+    )
+    app.dependency_overrides[get_search] = lambda: _RaisingPing(
+        RuntimeError("search down")
+    )
+    client = TestClient(app)
+
+    response = client.get("/readyz")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not_ready"
+    assert body["checks"]["openai"] == "failed: ConnectionError"
+    assert body["checks"]["search"] == "failed: RuntimeError"
 
 
 def test_query_requires_auth() -> None:

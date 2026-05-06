@@ -255,6 +255,16 @@ class TenantAwareSearchClient:
             out[doc["id"]] = doc.get("content_hash") or ""
         return out
 
+    async def ping(self) -> None:
+        """Cheap readiness probe — credential + index reachable.
+
+        Calls ``get_document_count`` (single REST round-trip, returns an
+        ``int``). Deliberately tenant-less: readiness is a connectivity
+        question, not a data-access one. The role attached to this
+        client (``Search Index Data Reader``) covers it.
+        """
+        await self._inner.get_document_count()
+
     async def close(self) -> None:
         """Idempotent — safe to call twice."""
         if self._closed:

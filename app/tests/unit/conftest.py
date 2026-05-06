@@ -81,12 +81,18 @@ def _matches(doc: dict[str, Any], clauses: list[tuple[str, str]]) -> bool:
 class FakeSearchClient:
     """In-memory fake exercising the TenantAwareSearchClient boundary."""
 
-    def __init__(self, docs: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        docs: list[dict[str, Any]] | None = None,
+        get_document_count_raises: Exception | None = None,
+    ) -> None:
         self._store: list[dict[str, Any]] = [dict(d) for d in (docs or [])]
         self.search_calls: list[dict[str, Any]] = []
         self.upload_calls: list[list[dict[str, Any]]] = []
         self.closed: bool = False
         self.close_calls: int = 0
+        self._get_document_count_raises = get_document_count_raises
+        self.get_document_count_calls: int = 0
 
     async def search(
         self,
@@ -115,6 +121,12 @@ class FakeSearchClient:
         if top is not None:
             matched = matched[:top]
         return _FakeAsyncIterator(matched)
+
+    async def get_document_count(self) -> int:
+        self.get_document_count_calls += 1
+        if self._get_document_count_raises is not None:
+            raise self._get_document_count_raises
+        return len(self._store)
 
     async def upload_documents(
         self, *, documents: list[dict[str, Any]]
@@ -145,11 +157,19 @@ class FakeLLMClient:
         self,
         complete_responses: list[Any] | None = None,
         embed_dim: int = 1536,
+        ping_raises: Exception | None = None,
     ) -> None:
         self._complete_responses: list[Any] = list(complete_responses or [])
         self._embed_dim = embed_dim
+        self._ping_raises = ping_raises
         self.complete_calls: list[dict[str, Any]] = []
         self.embed_calls: list[list[str]] = []
+        self.ping_calls: int = 0
+
+    async def ping(self) -> None:
+        self.ping_calls += 1
+        if self._ping_raises is not None:
+            raise self._ping_raises
 
     async def complete(
         self,
