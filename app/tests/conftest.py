@@ -27,6 +27,7 @@ os.environ.setdefault("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "test-embedding")
 os.environ.setdefault("AZURE_OPENAI_CHAT_DEPLOYMENT", "test-chat")
 os.environ.setdefault("AZURE_SEARCH_ENDPOINT", "https://test.search.windows.net")
 os.environ.setdefault("AZURE_SEARCH_INDEX_NAME", "corpus")
+os.environ.setdefault("KEY_VAULT_URI", "https://test.vault.azure.net/")
 os.environ.setdefault("ENABLE_DEV_AUTH", "true")
 
 

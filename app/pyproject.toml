@@ -16,6 +16,7 @@ authors = [{ name = "Berkay Yildirim" }]
 # See docs/design/rag-on-azure.md §3.
 dependencies = [
     "azure-identity>=1.18,<2",
+    "azure-keyvault-secrets>=4.8,<5",
     "azure-search-documents>=11.5,<12",
     # aiohttp is the runtime async transport for azure-identity.aio and
     # azure-search-documents.aio. Gated behind their [aio] extras in their

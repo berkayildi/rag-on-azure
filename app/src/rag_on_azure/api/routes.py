@@ -69,6 +69,10 @@ def get_search(request: Request) -> _Pingable:
     return request.app.state.search  # type: ignore[no-any-return]
 
 
+def get_key_vault(request: Request) -> _Pingable:
+    return request.app.state.key_vault  # type: ignore[no-any-return]
+
+
 @router.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -87,10 +91,12 @@ async def _run_check(name: str, client: _Pingable) -> tuple[str, str]:
 async def readyz(
     llm: Annotated[_Pingable, Depends(get_llm)],
     search: Annotated[_Pingable, Depends(get_search)],
+    key_vault: Annotated[_Pingable, Depends(get_key_vault)],
 ) -> JSONResponse:
     results = await asyncio.gather(
         _run_check("openai", llm),
         _run_check("search", search),
+        _run_check("key_vault", key_vault),
     )
     checks = dict(results)
     all_ok = all(v == "ok" for v in checks.values())

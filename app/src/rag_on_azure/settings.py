@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     azure_openai_chat_deployment: str
     azure_search_endpoint: str
     azure_search_index_name: str = "corpus"
+    key_vault_uri: str
     log_level: str = "INFO"
     enable_dev_auth: bool = False
 

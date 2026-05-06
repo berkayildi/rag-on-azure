@@ -38,6 +38,7 @@ repos:
           - langchain-text-splitters>=0.3,<0.4
           - azure-search-documents>=11.5,<12
           - azure-identity>=1.18,<2
+          - azure-keyvault-secrets>=4.8,<5
           - openai>=1.50,<2
           - fastapi>=0.115,<1
           - pyjwt>=2.9,<3

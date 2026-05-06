@@ -186,3 +186,40 @@ class FakeLLMClient:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         self.embed_calls.append(list(texts))
         return [[0.1] * self._embed_dim for _ in texts]
+
+
+class FakeKeyVaultClient:
+    """In-memory KeyVaultClient stand-in for route + auth tests.
+
+    ``signing_key`` is whatever shape the test wants — a PEM string for
+    signature-verification tests, an empty string for /readyz happy-path
+    tests, an arbitrary value when only ping behavior matters. The two
+    optional ``*_raises`` hooks let failure-path tests assert specific
+    HTTP status mappings without bringing up real Key Vault.
+    """
+
+    def __init__(
+        self,
+        signing_key: str = "",
+        ping_raises: Exception | None = None,
+        get_signing_key_raises: Exception | None = None,
+    ) -> None:
+        self._signing_key = signing_key
+        self._ping_raises = ping_raises
+        self._get_signing_key_raises = get_signing_key_raises
+        self.ping_calls: int = 0
+        self.get_signing_key_calls: int = 0
+
+    async def ping(self) -> None:
+        self.ping_calls += 1
+        if self._ping_raises is not None:
+            raise self._ping_raises
+
+    async def get_signing_key(self) -> str:
+        self.get_signing_key_calls += 1
+        if self._get_signing_key_raises is not None:
+            raise self._get_signing_key_raises
+        return self._signing_key
+
+    async def close(self) -> None:
+        pass
