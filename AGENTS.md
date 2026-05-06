@@ -78,7 +78,7 @@ The whole `scripts/dev-keys/` directory is gitignored — anyone forking generat
 **Push the public key to Key Vault (one-time, before flipping the deployed CA to `ENABLE_DEV_AUTH=false`):**
 
 ```bash
-KV_NAME=$(azd env get-value AZURE_KEY_VAULT_NAME)
+KV_NAME=$(azd env get-value keyVaultName)
 az keyvault secret set \
   --vault-name "$KV_NAME" \
   --name jwt-signing-key \
@@ -93,6 +93,47 @@ TOKEN=$(python scripts/mint-token.py --tenant-id demo \
 ```
 
 Pass via `Authorization: Bearer $TOKEN` against an environment running with `ENABLE_DEV_AUTH=false`. The verifier fetches the matching public PEM from Key Vault, caches it for five minutes, and validates the signature.
+
+## Operational quirks
+
+Surprises hit during live deployment that are stable enough to document. Add to this list when something costs 10+ minutes the first time and is likely to recur for the next operator.
+
+### Microsoft.App resource provider can drift to NotRegistered
+
+Symptom: `az containerapp update ...` returns *"Subscription is not registered for the Microsoft.App resource provider"* on a subscription where Container Apps are already running, or `az provider show -n Microsoft.App --query registrationState` returns `Registering` (mid-flight) instead of `Registered`.
+
+Recovery — synchronous re-registration:
+
+```bash
+az provider register -n Microsoft.App --wait
+```
+
+Idempotent: safe to run when already `Registered`. Hit twice during Day 6 Phase 5; no clear pattern for what triggers drift, so just re-register and retry the failed command.
+
+### Key Vault Secrets Officer is not Bicep-granted to the deploying developer
+
+`infra/modules/keyvault.bicep` grants `Key Vault Secrets User` to the Container App's managed identity only (read-only at runtime). The human operator deploying the stack gets no role assignment by default, so the first `az keyvault secret set ...` (for example, populating `jwt-signing-key` with a PEM) returns `403 ForbiddenByRbac` with `Assignment: (not found)`.
+
+One-time grant for the deploying identity, scoped to this Key Vault only:
+
+```bash
+USER_OID=$(az ad signed-in-user show --query id -o tsv)
+SUB_ID=$(az account show --query id -o tsv)
+RG=$(azd env get-value AZURE_RESOURCE_GROUP)
+KV_NAME=$(azd env get-value keyVaultName)
+KV_ID="/subscriptions/$SUB_ID/resourceGroups/$RG/providers/Microsoft.KeyVault/vaults/$KV_NAME"
+
+az role assignment create \
+  --role "Key Vault Secrets Officer" \
+  --assignee "$USER_OID" \
+  --scope "$KV_ID"
+```
+
+`Officer` (not `Administrator`) is the right scope — covers `setSecret` / `getSecret` / `listSecrets` without role/secret-management privileges. Requires `Owner` or `User Access Administrator` on the subscription (or the vault scope) to grant. Propagation: typically 30s–2min.
+
+### `az containerapp logs show --type system` rejects revision/container/replica filters
+
+The `--type system` flag returns environment-level system logs (image-pull, scale events, replica scheduling) but does not accept the `--revision`, `--container`, or `--replica` filters that work for `--type console` (the default). Combining them errors. To target system logs from a specific revision, query Log Analytics directly via `az monitor log-analytics query` against the workspace `customerId` and filter on `RevisionName_s` in KQL.
 
 ## Code conventions
 
