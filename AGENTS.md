@@ -54,7 +54,7 @@ Prerequisites: `az` logged in, `azd env new <name>` already run, `jq` available,
 
 The script prints the five `gh variable set` commands to run afterwards (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_LOCATION`). All five are repo variables, not secrets — none are sensitive on their own.
 
-The two federated-credential subjects are scoped per-purpose: `:ref:refs/heads/main` for deploy + eval-gate, `:pull_request` for bicep what-if. Workflow-level `if:` conditions enforce that PRs cannot reach the deploy job.
+The two federated-credential subjects are scoped per-purpose: `:ref:refs/heads/main` for deploy + eval-gate, `:pull_request` for bicep what-if. Workflow-level `if:` conditions enforce that PRs cannot reach the deploy job. See `docs/security.md` for the two-app-registration upgrade path.
 
 ### Tear-down
 
