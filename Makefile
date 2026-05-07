@@ -82,7 +82,7 @@ lint: ## Run ruff + mypy (skips if no Python files yet)
 	@if ! find app/src ingest/src -type f -name '*.py' 2>/dev/null | grep -q .; then \
 		echo "lint: skipped — no source files yet"; exit 0; \
 	fi; \
-	ruff check app ingest && mypy --strict app ingest
+	ruff check app ingest && mypy --strict app/src ingest/src
 
 precommit: ## Run pre-commit on all files
 	pre-commit run --all-files
