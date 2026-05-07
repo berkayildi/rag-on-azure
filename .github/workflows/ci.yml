@@ -75,7 +75,12 @@ jobs:
       - name: Install packages
         run: pip install -e "./app[dev]" -e "./ingest[dev]"
       - name: Run unit tests
-        run: pytest app/tests/unit ingest/tests/unit -q
+        # Two invocations, not one. A single `pytest app/tests/unit ingest/tests/unit`
+        # collides because both trees have a conftest.py at tests/unit/, and
+        # pytest's default `prepend` import mode imports both as the same
+        # `tests.unit.conftest` module name → ImportPathMismatchError. Splitting
+        # keeps each invocation's rootdir scoped to one package.
+        run: pytest app/tests/unit -q && pytest ingest/tests/unit -q
 
   integration-tests:
     name: Integration tests
