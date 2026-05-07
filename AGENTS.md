@@ -42,6 +42,20 @@ make up                      # Day 5+: provision + deploy image (azd up)
 ./scripts/seed-corpus.sh     # one-shot ingest
 ```
 
+### First-time CI bootstrap (OIDC federation)
+
+Before the first `ci.yml` run on a fork, federate GitHub Actions to Azure AD so workflows can authenticate without a long-lived service principal secret. Idempotent — safe to re-run.
+
+Prerequisites: `az` logged in, `azd env new <name>` already run, `jq` available, `gh` CLI installed for the variable-set step. The running identity needs Application Administrator on the AAD tenant and Owner / User Access Administrator on the dev resource group.
+
+```bash
+./scripts/bootstrap-oidc.sh   # creates AAD app, two federated credentials, role assignment
+```
+
+The script prints the five `gh variable set` commands to run afterwards (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `AZURE_LOCATION`). All five are repo variables, not secrets — none are sensitive on their own.
+
+The two federated-credential subjects are scoped per-purpose: `:ref:refs/heads/main` for deploy + eval-gate, `:pull_request` for bicep what-if. Workflow-level `if:` conditions enforce that PRs cannot reach the deploy job.
+
 ### Tear-down
 
 ```bash
