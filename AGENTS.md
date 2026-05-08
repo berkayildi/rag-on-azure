@@ -167,6 +167,14 @@ Surfaced during the Day 7 Phase 1 keyvault `make plan` run as a `~ Modify` entry
 
 **Permanent fix queued (separate commit, out of scope of the keyvault PR):** either (a) replace the `latest-dev` default with a sentinel that errors when not explicitly overridden, forcing every deploy path to declare a tag; or (b) commit the current sha to `infra/main.parameters.json` and add an automated bump pattern (CI updates the parameters file as part of the deploy job). Option (a) is simpler and harder to drift from.
 
+### `bicep-whatif` shows `ciPrincipalId` role assignment as would-be-deleted on subsequent PRs
+
+The `eval-gate` job needs the OIDC-federated CI service principal to have `Search Index Data Reader` on the search service; this is granted by a conditional role assignment in `infra/modules/search.bicep` driven by the `ciPrincipalId` parameter. CI's `deploy` step passes `ciPrincipalId=${{ vars.AZURE_CI_PRINCIPAL_ID }}` so the assignment lands. CI's `bicep-whatif` step does NOT pass that override — it relies on `infra/main.parameters.example.json`, which has `"ciPrincipalId": { "value": "" }`.
+
+Result: after main has the role assigned in the live RG, every subsequent PR's `bicep-whatif` re-templates with empty `ciPrincipalId`, the role assignment resource is conditional (`if (!empty(ciPrincipalId))`), and what-if reports it as `~ Delete`. Visual noise, not actual drift — `deploy` will re-create with the override on merge.
+
+**Fix queued (separate commit):** thread `vars.AZURE_CI_PRINCIPAL_ID` through to the `bicep-whatif` step's `--parameters` overrides so what-if and deploy share the same parameter set.
+
 ## Code conventions
 
 - **Python 3.12**, type-hinted, `mypy --strict` clean
