@@ -198,6 +198,9 @@ jobs:
         # Same parameter shape as the what-if step above. The deploy uses
         # the immutable sha-<short> tag pushed by the build job, not
         # latest-dev, so each merge produces a reproducible deployment.
+        # ciPrincipalId is sourced from a repo variable so the eval-gate
+        # job's CI service principal lands a Search Index Data Reader
+        # role assignment on first apply (see infra/modules/search.bicep).
         run: |
           SHA_SHORT="${GITHUB_SHA:0:7}"
           az deployment group create \
@@ -205,7 +208,8 @@ jobs:
             --template-file infra/main.bicep \
             --parameters @infra/main.parameters.example.json \
             --parameters location="${{ vars.AZURE_LOCATION }}" \
-                         containerImage="ghcr.io/${{ github.repository_owner }}/rag-on-azure:sha-${SHA_SHORT}"
+                         containerImage="ghcr.io/${{ github.repository_owner }}/rag-on-azure:sha-${SHA_SHORT}" \
+                         ciPrincipalId="${{ vars.AZURE_CI_PRINCIPAL_ID }}"
 
   eval-gate:
     name: Eval gate (snapshot + evaluate-rag)
