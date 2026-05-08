@@ -215,7 +215,7 @@ Key paths:
 ## CI
 
 - `ci.yml` runs lint → unit → integration → secrets scan → build → bicep what-if → deploy dev → eval gate
-- `eval-gate.yml` runs nightly against the deployed dev endpoint
+- The `eval-gate` stage in `ci.yml` runs on every push to main: snapshots the live AI Search index (one tenant) to a JSONL via `eval/snapshot_corpus.py`, then runs `mcp-llm-eval evaluate-rag` against the snapshot. In-process eval, not a live HTTP-endpoint hit — see design spec §6.4 for the rationale.
 - `release-please.yml` handles versioning automation
 - Auth to Azure: GitHub OIDC federation. No long-lived service principal secret.
 
@@ -236,6 +236,6 @@ Docker image dependency installation uses `pyproject.toml` ranges, not a lockfil
 
 ## Related projects
 
-- `mcp-llm-eval` — evaluation engine, consumed from PyPI at `>=0.7.0,<0.8.0`. Never modified from this repo.
+- `mcp-llm-eval` — evaluation engine, consumed from PyPI at `==0.9.2`. Never modified from this repo.
 - `llm-benchmarks` — data layer. CI writes `azure-summary.json` and `azure-benchmark.json` to it. No source code changes.
 - `llmshot` — visualisation. Consumes `llm-benchmarks` data. No coupling from this repo.

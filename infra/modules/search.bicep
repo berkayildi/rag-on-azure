@@ -31,9 +31,13 @@ param tags object
 @description('Optional. Object ID of a developer principal (e.g. `az ad signed-in-user show --query id -o tsv`) to grant Search Index Data Contributor on this service. Empty string disables the assignment. Used so a human running `make ingest` locally can create indexes against this service. The deployed Container App MI already has the same role assignment in `modules/containerapp.bicep`.')
 param developerPrincipalId string = ''
 
+@description('Optional. Object ID of the OIDC-federated CI service principal that runs eval-gate. Granted Search Index Data Reader so `eval/snapshot_corpus.py` can dump the index. Owner-on-RG is control plane and does not grant data-plane Search access. Empty string disables the assignment.')
+param ciPrincipalId string = ''
+
 var searchName = '${prefix}-${environmentName}-search-${uniqueSuffix}'
 
 var searchIndexDataContributorRoleId = '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
+var searchIndexDataReaderRoleId = '1407120a-92aa-4202-b7e9-c0e197c71c8f'
 
 resource search 'Microsoft.Search/searchServices@2023-11-01' = {
   name: searchName
@@ -63,6 +67,16 @@ resource developerSearchContributorRole 'Microsoft.Authorization/roleAssignments
     principalId: developerPrincipalId
     principalType: 'User'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', searchIndexDataContributorRoleId)
+  }
+}
+
+resource ciSearchReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(ciPrincipalId)) {
+  name: guid(search.id, ciPrincipalId, searchIndexDataReaderRoleId)
+  scope: search
+  properties: {
+    principalId: ciPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', searchIndexDataReaderRoleId)
   }
 }
 

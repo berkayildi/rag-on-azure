@@ -1,9 +1,9 @@
 # rag-on-azure — Design Specification
 
-**Status:** Draft v1.2
+**Status:** Draft v1.3
 **Author:** Berkay Yildirim
-**Last updated:** 27 April 2026
-**mcp-llm-eval consumed version:** `>=0.7.0,<0.8.0`
+**Last updated:** 8 May 2026
+**mcp-llm-eval consumed version:** `==0.9.2`
 
 A reference implementation of a production-grade RAG (Retrieval-Augmented Generation) application on Microsoft Azure. The repo is intended to be forked or used as architectural reference for teams building RAG on the Azure stack.
 
@@ -28,8 +28,7 @@ Before any code is written, the Azure subscription must be in a usable state.
 rag-on-azure/
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml                    # primary CI
-│       ├── eval-gate.yml             # nightly eval against deployed dev
+│       ├── ci.yml                    # primary CI (includes eval-gate stage)
 │       └── release-please.yml        # Release Please automation
 ├── azure-pipelines.yml               # Azure Pipelines mirror
 ├── release-please-config.json
@@ -73,8 +72,9 @@ rag-on-azure/
 │   │   └── index.py
 │   └── corpus_manifest.yaml
 ├── eval/
-│   ├── golden.jsonl
-│   └── .eval-gate.yml
+│   ├── golden.jsonl                  # 36 grounded QA rows (FCA + HMRC)
+│   ├── .eval-gate.yml                # mcp-llm-eval threshold + judge config
+│   └── snapshot_corpus.py            # dump live AI Search index → corpus JSONL
 ├── docs/
 │   ├── design/
 │   │   └── rag-on-azure.md
@@ -279,7 +279,7 @@ Stages:
 5. **Build** — Docker image, push to GHCR with `sha-` and `latest-dev` tags
 6. **Bicep what-if** — against the dev resource group (read-only diff)
 7. **Deploy dev** — `azd deploy --no-prompt` to `dev` environment (only on `main`)
-8. **Eval gate** — `mcp-llm-eval evaluate-rag --endpoint $DEV_FQDN --dataset eval/golden.jsonl --gate eval/.eval-gate.yml`. Gate failure blocks the run; results posted as PR comment.
+8. **Eval gate** — Two steps. First, `python eval/snapshot_corpus.py --endpoint <search-endpoint> --tenant demo --output eval/.cache/corpus_snapshot.jsonl` dumps the deployed dev AI Search index for the `demo` tenant into mcp-llm-eval's corpus shape (`{chunk_id, content, metadata}`). Then `mcp-llm-eval evaluate-rag --dataset eval/golden.jsonl --corpus eval/.cache/corpus_snapshot.jsonl --config eval/.eval-gate.yml --model openai:gpt-4o-mini` runs retrieval (BM25 in-process against the snapshot) plus generation plus LLM-judge scoring. Gate failure (any threshold in §6.3 missed) blocks the run; results uploaded as a build artefact. The eval is in-process, not against the live HTTP endpoint — see §6.4 for why.
 
 Auth: GitHub OIDC federation to Azure AD. No long-lived service principal secret in repo settings.
 
@@ -289,29 +289,61 @@ Same stages, Azure Pipelines idioms (`stages → jobs → steps`, `AzureCLI@2` t
 
 ### 6.3 Eval gate config (`eval/.eval-gate.yml`)
 
+The schema is mcp-llm-eval v0.9.2's loader (`mcp_llm_eval/config.py`):
+top-level `models:` (required), `judge:`, `output_dir:`, and `thresholds:`
+with **flat keys**. The `--corpus`, `--dataset`, `--model`, and `--k` flags
+are passed on the CLI, not in this file.
+
 ```yaml
-schema_version: '0.7'
-retrieval:
-  recall_at_5:
-    min: 0.75
-  precision_at_5:
-    min: 0.40
-  mrr:
-    min: 0.65
-rag:
-  citation_faithfulness:
-    min: 0.85
-  context_relevance:
-    min: 0.75
-latency:
-  p95_ms:
-    max: 3500
-on_regression:
-  action: fail
-  delta_threshold: 0.05
+models:
+  - provider: openai
+    model: gpt-4o-mini
+    max_tokens: 1024
+    input_cost_per_mtok: 0.15
+    output_cost_per_mtok: 0.60
+
+judge:
+  provider: openai
+  model: gpt-4o-mini
+  temperature: 0
+
+output_dir: eval/.results
+
+thresholds:
+  # retrieval (k=5)
+  avg_recall_at_k: 0.60
+  avg_precision_at_k: 0.20
+  avg_mrr: 0.55
+  avg_ndcg_at_k: 0.55
+  p95_retrieval_latency_ms: 200
+  # rag (judge: gpt-4o-mini)
+  avg_context_relevance: 0.55
+  avg_citation_faithfulness: 0.70
+  # generation
+  p95_ttft_ms: 5000
+  max_cost_per_query: 0.005
 ```
 
 Thresholds set conservatively for v1; tightened as the corpus stabilises.
+mcp-llm-eval has no native regression-detection field in this YAML — drift
+checking is a separate `mcp-llm-eval compare` invocation against a stored
+baseline summary, deferred to a follow-up phase.
+
+### 6.4 Why snapshot, not live-endpoint, eval
+
+mcp-llm-eval v0.9.2's `evaluate-rag` is an **in-process** evaluator: it loads
+a `--corpus` JSONL, runs BM25 (or an embedding adapter) client-side, calls a
+generation model, and scores with an LLM-judge. It has no `--endpoint` flag.
+To gate CI on the deployed app's behaviour we therefore snapshot the live
+AI Search index for one tenant before each run and evaluate against the
+snapshot. The eval covers retrieval-quality regressions (corpus drift,
+chunking changes, embedder changes) and generation-quality regressions
+(prompt drift, model drift) — which is what the gate is for. It does not
+exercise the live HTTP path, which is what the integration tests in
+§6.1 stage 3 are for. Adding a live-endpoint adapter would require either a
+shim in this repo (duplicates eval logic) or an upstream feature in
+mcp-llm-eval (out of scope per §11). Snapshot was chosen for these reasons
+during the v1.3 design pause; see the design log for the verdict.
 
 ## 7. Security model
 
@@ -431,7 +463,7 @@ This stack is not sized to be a component of high-traffic production services. D
 - LangChain (LangGraph only)
 - AKS (Container Apps only)
 - Index-per-tenant (documented as escalation path, not implemented)
-- Anything that touches `mcp-llm-eval`'s source — it's consumed from PyPI at `>=0.7.0,<0.8.0`, never modified from this repo
+- Anything that touches `mcp-llm-eval`'s source — it's consumed from PyPI at `==0.9.2`, never modified from this repo
 - Anything that touches `llm-benchmarks` source code — only artefact files (`azure-summary.json`, `azure-benchmark.json`) are written there by CI
 - Manual versioning / manual changelog editing — Release Please owns both
 - Private or proprietary data — corpus is exclusively public regulatory documents
@@ -440,8 +472,8 @@ This stack is not sized to be a component of high-traffic production services. D
 
 - [ ] `azd up` from a clean checkout provisions the full stack and returns a working URL
 - [ ] `curl` against that URL with a valid JWT returns a grounded answer with citations
-- [ ] `mcp-llm-eval evaluate-rag` against the live endpoint passes the gate thresholds
-- [ ] CI is green on main; eval-gate workflow runs nightly and posts results
+- [ ] `mcp-llm-eval evaluate-rag` against the snapshotted corpus passes the gate thresholds
+- [ ] CI is green on main; eval-gate stage runs on every push to main and uploads results as a build artefact
 - [ ] README explains: what it is, who it's for, how to run it, how to fork it, security posture, cost expectations
 - [ ] `docs/architecture.md` has at least one diagram showing data flow
 - [ ] Two integration tests prove tenant isolation
@@ -472,7 +504,7 @@ Every CI run on `main` produces two JSON artefacts and pushes them to `llm-bench
 - `llm-benchmarks/retrieval/azure-summary.json` — aggregate metrics (recall@k, MRR, nDCG, citation faithfulness, p50/p95 latency)
 - `llm-benchmarks/retrieval/azure-benchmark.json` — full per-query breakdown for drill-down views in LLMShot
 
-The shape matches the schema produced by the existing retrievers — `mcp-llm-eval >=0.7.0` emits this shape natively. No translator layer required.
+The shape matches the schema produced by the existing retrievers — `mcp-llm-eval ==0.9.2` emits this shape natively. No translator layer required.
 
 ### 13.2 Optional integration
 
