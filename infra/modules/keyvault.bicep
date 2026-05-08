@@ -21,9 +21,11 @@ param uniqueSuffix string
 @description('Tags applied to the Key Vault.')
 param tags object
 
-@description('Initial value for the JWT signing key. Defaults to a fresh GUID per deploy; rotate via az keyvault secret set after deployment — see README.')
-@secure()
-param jwtSigningKeyValue string = newGuid()
+// Secret values are operator territory. Bicep provisions the vault and RBAC
+// only; secrets like `jwt-signing-key` are populated and rotated out-of-band
+// via `az keyvault secret set` — see AGENTS.md §"Operational quirks" for the
+// one-time public-PEM upload procedure. Keeping the secret out of Bicep
+// prevents every deploy from overwriting a rotated key with a fresh GUID.
 
 var keyVaultName = '${prefix}-${environmentName}-kv-${uniqueSuffix}'
 
@@ -51,16 +53,6 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
-resource jwtSigningKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVault
-  name: 'jwt-signing-key'
-  properties: {
-    value: jwtSigningKeyValue
-    contentType: 'JWT signing key — rotate after deploy'
-  }
-}
-
 output keyVaultId string = keyVault.id
 output keyVaultName string = keyVault.name
 output keyVaultUri string = keyVault.properties.vaultUri
-output jwtSigningKeySecretName string = jwtSigningKey.name

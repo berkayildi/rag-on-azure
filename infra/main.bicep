@@ -25,10 +25,6 @@ param searchSku string = 'free'
 @description('Tenant IDs to seed. Reserved for the ingest pipeline; not consumed by infra in v0.1. Surfaced as an output so downstream tooling can read it back.')
 param tenantSeedIds array = []
 
-@description('Initial JWT signing key value. Defaults to a fresh GUID per deploy; rotate via az keyvault secret set after deployment — see README.')
-@secure()
-param jwtSigningKeyValue string = newGuid()
-
 @description('Container image to deploy. Day 5 swaps from the MCR placeholder to the GHCR image built by .github/workflows/build-image.yml. Day 7 CI will pin to immutable sha-<short> tags; latest-dev is correct for the v0.1 manual deploy loop.')
 param containerImage string = 'ghcr.io/berkayildi/rag-on-azure:latest-dev'
 
@@ -61,7 +57,6 @@ module keyvault 'modules/keyvault.bicep' = {
     environmentName: environmentName
     uniqueSuffix: uniqueSuffix
     tags: tags
-    jwtSigningKeyValue: jwtSigningKeyValue
   }
 }
 
