@@ -31,6 +31,9 @@ param containerImage string = 'ghcr.io/berkayildi/rag-on-azure:latest-dev'
 @description('Optional. Object ID of a developer principal granted Search Index Data Contributor on the search service so a human can run `make ingest` locally. Set this in the gitignored `main.parameters.json` only — never commit a real GUID. See README §Development.')
 param developerPrincipalId string = ''
 
+@description('Optional. Object ID of the OIDC-federated CI service principal granted Search Index Data Reader on the search service so the eval-gate job can snapshot the index. Passed in CI from `vars.AZURE_CI_PRINCIPAL_ID`; left empty for local deploys.')
+param ciPrincipalId string = ''
+
 var uniqueSuffix = take(uniqueString(resourceGroup().id), 6)
 
 var tags = {
@@ -70,6 +73,7 @@ module search 'modules/search.bicep' = {
     sku: searchSku
     tags: tags
     developerPrincipalId: developerPrincipalId
+    ciPrincipalId: ciPrincipalId
   }
 }
 
