@@ -145,9 +145,27 @@ az role assignment create \
 
 `Officer` (not `Administrator`) is the right scope — covers `setSecret` / `getSecret` / `listSecrets` without role/secret-management privileges. Requires `Owner` or `User Access Administrator` on the subscription (or the vault scope) to grant. Propagation: typically 30s–2min.
 
+### `jwt-signing-key` is operator-managed — Bicep MUST NOT touch it
+
+The `jwt-signing-key` secret in Key Vault is **never** declared as a Bicep resource and **never** parameterised through `main.bicep`. The vault itself is provisioned by `infra/modules/keyvault.bicep`; the secret value is populated and rotated exclusively out-of-band via the `az keyvault secret set --file …jwt-signing.public.pem` flow documented above.
+
+Why this rule exists: an earlier iteration declared the secret in Bicep with a `newGuid()` default. Every `az deployment group create` (and every CI deploy) overwrote the rotated public PEM with a fresh GUID, breaking RS256 signature verification in production until the operator re-uploaded the PEM by hand. Recovered Day 6→7; the architectural fix is to keep secret values out of the IaC graph entirely.
+
+If a future change appears to need Bicep-managed secrets (e.g. a `Microsoft.KeyVault/vaults/secrets@…` resource, or a `@secure()` param defaulting to `newGuid()` / `utcNow()`), stop and reconsider — the right answer is almost always an operator runbook entry here, not a Bicep resource.
+
 ### `az containerapp logs show --type system` rejects revision/container/replica filters
 
 The `--type system` flag returns environment-level system logs (image-pull, scale events, replica scheduling) but does not accept the `--revision`, `--container`, or `--replica` filters that work for `--type console` (the default). Combining them errors. To target system logs from a specific revision, query Log Analytics directly via `az monitor log-analytics query` against the workspace `customerId` and filter on `RevisionName_s` in KQL.
+
+### `make apply` locally would regress the running image to `latest-dev`
+
+`infra/main.bicep` declares `param containerImage string = 'ghcr.io/berkayildi/rag-on-azure:latest-dev'`, and `infra/main.parameters.json` does not override it. CI's deploy job passes `--parameters containerImage=ghcr.io/berkayildi/rag-on-azure:sha-<short>` so CI deploys are correctly pinned to immutable sha tags. A local `make apply` (or any `azd provision` / `az deployment group create` that uses `main.parameters.json` without an override) would re-template the running revision back to mutable `latest-dev` — a regression away from the immutable-sha discipline.
+
+Surfaced during the Day 7 Phase 1 keyvault `make plan` run as a `~ Modify` entry on `Microsoft.App/containerApps/rag-dev-ca` showing `image: "sha-d130e51" => "latest-dev"`. The drift exists on `main` independent of any Bicep edit: it's a property of the parameter wiring, not of the resources themselves.
+
+**Mitigation today:** do not run `make apply` locally against the dev (or any) resource group. All apply operations go through CI, which supplies the sha override. Local `make plan` is fine — read-only.
+
+**Permanent fix queued (separate commit, out of scope of the keyvault PR):** either (a) replace the `latest-dev` default with a sentinel that errors when not explicitly overridden, forcing every deploy path to declare a tag; or (b) commit the current sha to `infra/main.parameters.json` and add an automated bump pattern (CI updates the parameters file as part of the deploy job). Option (a) is simpler and harder to drift from.
 
 ## Code conventions
 
