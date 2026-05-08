@@ -1,0 +1,40 @@
+# Quality gate for the rag-on-azure eval workflow.
+#
+# Schema is mcp-llm-eval v0.9.2's loader (see mcp_llm_eval/config.py). The
+# corpus JSONL is produced by ./snapshot_corpus.py against the deployed dev
+# index and passed via --corpus on the CLI; --dataset and --model are also
+# passed on the CLI. This file owns models (required), judge, output_dir, and
+# thresholds.
+
+models:
+  - provider: openai
+    model: gpt-4o-mini
+    max_tokens: 1024
+    input_cost_per_mtok: 0.15
+    output_cost_per_mtok: 0.60
+
+judge:
+  provider: openai
+  model: gpt-4o-mini
+  temperature: 0
+
+output_dir: eval/.results
+
+# Initial thresholds are conservative for a v1 corpus: values likely to be
+# achievable on the seeded FCA/HMRC documents with BM25 + gpt-4o-mini. Tighten
+# (or split per-category) once we have a few CI runs of baseline numbers.
+thresholds:
+  # Retrieval quality (k=5 by CLI default)
+  avg_recall_at_k: 0.60
+  avg_precision_at_k: 0.20
+  avg_mrr: 0.55
+  avg_ndcg_at_k: 0.55
+  p95_retrieval_latency_ms: 200
+
+  # RAG quality (judge: gpt-4o-mini)
+  avg_context_relevance: 0.55
+  avg_citation_faithfulness: 0.70
+
+  # Generation latency / cost
+  p95_ttft_ms: 5000
+  max_cost_per_query: 0.005
