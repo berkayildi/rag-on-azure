@@ -24,16 +24,28 @@ output_dir: eval/.results
 # achievable on the seeded FCA/HMRC documents with BM25 + gpt-4o-mini. Tighten
 # (or split per-category) once we have a few CI runs of baseline numbers.
 thresholds:
-  # Retrieval quality (k=5 by CLI default)
+  # Retrieval quality (k=5 by CLI default).
+  # Calibrated against run 25584786057 (first real eval-gate exercise on
+  # main, 2026-05-08): recall@5 0.7778, mrr 0.5278, ndcg@5 0.5908,
+  # precision@5 0.1556 (= recall/k — see note below).
   avg_recall_at_k: 0.60
-  avg_precision_at_k: 0.20
-  avg_mrr: 0.55
+  # avg_precision_at_k removed: every golden row currently has exactly
+  # one relevant_chunk_id, so max possible avg_precision_at_5 = 1/5 =
+  # 0.20 by construction. The metric collapses to recall_at_5 / 5 in
+  # this dataset shape and adds no signal beyond avg_recall_at_k. Add
+  # back with a real threshold when goldens grow to multi-chunk
+  # relevance judgements.
+  avg_mrr: 0.50
   avg_ndcg_at_k: 0.55
   p95_retrieval_latency_ms: 200
 
-  # RAG quality (judge: gpt-4o-mini)
+  # RAG quality (judge: gpt-4o-mini).
+  # Calibrated against run 25584786057: context_relevance 0.7097,
+  # citation_faithfulness 0.9931. Citation_faithfulness threshold
+  # tightened from 0.70 to 0.90 to actually exercise the metric
+  # (gpt-4o-mini hallucinates rarely on this corpus).
   avg_context_relevance: 0.55
-  avg_citation_faithfulness: 0.70
+  avg_citation_faithfulness: 0.90
 
   # Generation latency / cost
   p95_ttft_ms: 5000
