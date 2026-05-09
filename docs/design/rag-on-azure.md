@@ -504,16 +504,41 @@ This stack is not sized to be a component of high-traffic production services. D
 
 ### 13.1 Output artefacts
 
-Every CI run on `main` produces two JSON artefacts and pushes them to `llm-benchmarks` (separate repo, write via fine-grained GitHub App token, scoped):
+Every CI run on `main` whose `eval-gate` passes triggers the
+`publish-benchmarks` job in `ci.yml`. The job mints a per-run install
+token via `actions/create-github-app-token@v1` (App scoped to
+`llm-benchmarks`), downloads the eval-results artefact uploaded by
+`eval-gate`, checks out `llm-benchmarks`, places files at the paths
+below, commits with message `chore(azure): bench {short-sha}
+{timestamp}`, and pushes to `main`.
 
-- `llm-benchmarks/retrieval/azure-summary.json` — aggregate metrics (recall@k, MRR, nDCG, citation faithfulness, p50/p95 latency)
-- `llm-benchmarks/retrieval/azure-benchmark.json` — full per-query breakdown for drill-down views in LLMShot
+**Latest pointers** (overwritten each run; feed llmshot's current-state view):
+
+- `llm-benchmarks/retrieval/azure-summary.json` — aggregate metrics (recall@k, MRR, nDCG, citation faithfulness, p50/p95 latency). Renamed copy of mcp-llm-eval's `latest_rag_summary.json`.
+- `llm-benchmarks/retrieval/azure-benchmark.json` — full per-query breakdown. Renamed copy of mcp-llm-eval's most recent `*_rag_benchmark.json`.
+
+**Append-only history** (one pair per CI run; feed drift charts):
+
+- `llm-benchmarks/retrieval/history/azure-{short-sha}-{timestamp}-summary.json`
+- `llm-benchmarks/retrieval/history/azure-{short-sha}-{timestamp}-benchmark.json`
+
+`{short-sha}` is the rag-on-azure commit's 7-character SHA. `{timestamp}` is `YYYYMMDDTHHMMSSZ` UTC.
 
 The shape matches the schema produced by the existing retrievers — `mcp-llm-eval ==0.9.2` emits this shape natively. No translator layer required.
 
 ### 13.2 Optional integration
 
-The `llm-benchmarks` push step is optional. Forks unconnected to that ecosystem can disable it via a CI variable. `rag-on-azure` runs independently regardless.
+The `publish-benchmarks` job is gated on `vars.LLMSHOT_PUSH_ENABLED == 'true'`. Forks unconnected to the llmshot ecosystem leave the variable unset and the job is skipped silently.
+
+The job is also `continue-on-error: true` — a transient push failure (token expired, network blip, llm-benchmarks unreachable) does not fail the CI run. The eval-gate's contract is that the deployed RAG meets quality thresholds; benchmark publication is best-effort downstream.
+
+Operator setup for the owner's fork:
+
+- Create a GitHub App scoped to `llm-benchmarks` with `Contents: read & write` permission.
+- Install the App on the user/org owning both repos.
+- `gh secret set LLMSHOT_APP_PRIVATE_KEY < app-private-key.pem`.
+- `gh variable set LLMSHOT_APP_ID <numeric-app-id>`.
+- `gh variable set LLMSHOT_PUSH_ENABLED true`.
 
 ---
 
