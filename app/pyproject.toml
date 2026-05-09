@@ -29,6 +29,7 @@ dependencies = [
     "pyjwt[crypto]>=2.9,<3",
     "langgraph>=0.2,<2",
     "pydantic-settings>=2.5,<3",
+    "prometheus-client>=0.21,<1",
     "uvicorn[standard]>=0.30,<1",
 ]
 

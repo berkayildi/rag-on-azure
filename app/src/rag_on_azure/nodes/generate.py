@@ -34,6 +34,7 @@ Empty-retrieval short-circuit (Phase D defence-in-depth):
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -41,6 +42,7 @@ from pydantic import BaseModel
 
 from rag_on_azure.api.schemas import Citation
 from rag_on_azure.clients.llm import LLMClient
+from rag_on_azure.metrics import GENERATION_ERRORS, GENERATION_LATENCY
 from rag_on_azure.models import Chunk, Message
 from rag_on_azure.state import GraphState
 
@@ -92,60 +94,67 @@ def make_generate_node(
     llm: LLMClient,
 ) -> Callable[[GraphState], Awaitable[dict[str, Any]]]:
     async def generate(state: GraphState) -> dict[str, Any]:
-        chunks = state.retrieved_chunks
-        if not chunks:
-            log.info(
-                "generate: short-circuiting on empty retrieval "
-                "(tenant=%s, question=%r)",
-                state.tenant_id,
-                state.question[:50],
+        started = time.perf_counter()
+        try:
+            chunks = state.retrieved_chunks
+            if not chunks:
+                log.info(
+                    "generate: short-circuiting on empty retrieval "
+                    "(tenant=%s, question=%r)",
+                    state.tenant_id,
+                    state.question[:50],
+                )
+                return {"answer": EMPTY_RETRIEVAL_ANSWER, "citations": []}
+
+            valid_ids = {c.id for c in chunks}
+            chunks_by_id = {c.id: c for c in chunks}
+            user_message = (
+                f"Question: {state.question}\n\nChunks:\n{_format_chunks(chunks)}"
             )
-            return {"answer": EMPTY_RETRIEVAL_ANSWER, "citations": []}
 
-        valid_ids = {c.id for c in chunks}
-        chunks_by_id = {c.id: c for c in chunks}
-        user_message = (
-            f"Question: {state.question}\n\nChunks:\n{_format_chunks(chunks)}"
-        )
-
-        answer: Answer = await llm.complete(
-            messages=[
-                Message(role="system", content=_BASE_PROMPT),
-                Message(role="user", content=user_message),
-            ],
-            schema=Answer,
-        )
-
-        if not _all_ids_valid(answer.cited_chunk_ids, valid_ids):
-            log.warning(
-                "generate: first attempt cited unknown chunk IDs %s; retrying",
-                [cid for cid in answer.cited_chunk_ids if cid not in valid_ids],
-            )
-            answer = await llm.complete(
+            answer: Answer = await llm.complete(
                 messages=[
-                    Message(
-                        role="system",
-                        content=_strict_retry_prompt(sorted(valid_ids)),
-                    ),
+                    Message(role="system", content=_BASE_PROMPT),
                     Message(role="user", content=user_message),
                 ],
                 schema=Answer,
             )
-            if not _all_ids_valid(answer.cited_chunk_ids, valid_ids):
-                raise CitationContractError(
-                    "LLM cited unknown chunk IDs after one retry; "
-                    "refusing to return a hallucinated answer."
-                )
 
-        citations = [
-            Citation(
-                chunk_id=cid,
-                source=chunks_by_id[cid].source,
-                section_path=chunks_by_id[cid].section_path,
-                score=chunks_by_id[cid].score,
-            )
-            for cid in answer.cited_chunk_ids
-        ]
-        return {"answer": answer.text, "citations": citations}
+            if not _all_ids_valid(answer.cited_chunk_ids, valid_ids):
+                log.warning(
+                    "generate: first attempt cited unknown chunk IDs %s; retrying",
+                    [cid for cid in answer.cited_chunk_ids if cid not in valid_ids],
+                )
+                answer = await llm.complete(
+                    messages=[
+                        Message(
+                            role="system",
+                            content=_strict_retry_prompt(sorted(valid_ids)),
+                        ),
+                        Message(role="user", content=user_message),
+                    ],
+                    schema=Answer,
+                )
+                if not _all_ids_valid(answer.cited_chunk_ids, valid_ids):
+                    raise CitationContractError(
+                        "LLM cited unknown chunk IDs after one retry; "
+                        "refusing to return a hallucinated answer."
+                    )
+
+            citations = [
+                Citation(
+                    chunk_id=cid,
+                    source=chunks_by_id[cid].source,
+                    section_path=chunks_by_id[cid].section_path,
+                    score=chunks_by_id[cid].score,
+                )
+                for cid in answer.cited_chunk_ids
+            ]
+            return {"answer": answer.text, "citations": citations}
+        except Exception as exc:
+            GENERATION_ERRORS.labels(error_type=type(exc).__name__).inc()
+            raise
+        finally:
+            GENERATION_LATENCY.observe(time.perf_counter() - started)
 
     return generate

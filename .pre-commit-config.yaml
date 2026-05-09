@@ -26,6 +26,11 @@ repos:
       - id: mypy
         args: [--strict]
         files: ^(app|ingest)/src/
+        # Pinned: mypy 1.13.0 raises AssertionError under Python 3.14
+        # against azure-search-documents 12.x stubs. CI uses
+        # actions/setup-python@v6 with python-version: '3.12'; matching
+        # locally avoids the stub-fixup crash.
+        language_version: python3.12
         additional_dependencies:
           - httpx>=0.27,<1
           - aiohttp>=3.10,<4
@@ -44,6 +49,7 @@ repos:
           - pyjwt[crypto]>=2.9,<3
           - langgraph>=0.2,<1
           - pydantic-settings>=2.5,<3
+          - prometheus-client>=0.21,<1
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2

@@ -8,7 +8,14 @@ the purpose. ``/readyz`` is auth-free but dependency-touching: it
 pings each runtime client once and returns 503 if any check fails,
 so Container Apps' readiness probe (and any external orchestrator)
 can distinguish "process alive" from "ready to serve". ``/metrics``
-(also §3.4) is deferred to Day 7 alongside the eval-gate work.
+(also §3.4) is auth-free Prometheus exposition: counters for
+``queries_total``, ``retrieval_errors_total``, ``generation_errors_total``;
+histograms for ``retrieval_latency_seconds``, ``generation_latency_seconds``,
+``total_request_seconds``; plus the standard process/platform/GC
+collectors auto-registered by ``prometheus_client`` on import. Public
+posture is the demo default — production deployments should gate the
+endpoint via a network allowlist or admin-JWT bearer (see
+``docs/security.md``).
 
 ``/query`` is the only route that touches the graph. ``tenant_id``
 flows JWT → ``get_current_tenant`` → ``TenantContext`` → ``GraphState``;
@@ -24,14 +31,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Annotated, Any, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from langgraph.graph.state import CompiledStateGraph
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from rag_on_azure.api.schemas import RagRequest, RagResponse, TenantContext
 from rag_on_azure.auth import get_current_admin, get_current_tenant
+from rag_on_azure.metrics import QUERIES_TOTAL, TOTAL_REQUEST_SECONDS
 from rag_on_azure.nodes.generate import CitationContractError
 from rag_on_azure.state import GraphState
 
@@ -116,12 +126,20 @@ async def readyz(
     )
 
 
+@router.get("/metrics")
+async def metrics() -> Response:
+    """Prometheus exposition. Public per Phase 3 D1; production hardening
+    deferred to ``docs/security.md``."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @router.post("/query", response_model=RagResponse)
 async def query(
     payload: RagRequest,
     ctx: Annotated[TenantContext, Depends(get_current_tenant)],
     graph: Annotated[CompiledStateGraph[Any, Any, Any, Any], Depends(get_graph)],
 ) -> RagResponse:
+    started = time.perf_counter()
     state = GraphState(
         question=payload.question,
         tenant_id=ctx.tenant_id,
@@ -130,6 +148,8 @@ async def query(
     try:
         final = await graph.ainvoke(state)
     except CitationContractError as exc:
+        QUERIES_TOTAL.labels(tenant_id=ctx.tenant_id, status="error").inc()
+        TOTAL_REQUEST_SECONDS.observe(time.perf_counter() - started)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="upstream model failed citation contract",
@@ -140,10 +160,14 @@ async def query(
         # (a JWT carrying a malformed tenant_id like "Tenant Acme").
         # If a future node adds another ValueError path, route it
         # through its own narrow catch.
+        QUERIES_TOTAL.labels(tenant_id=ctx.tenant_id, status="error").inc()
+        TOTAL_REQUEST_SECONDS.observe(time.perf_counter() - started)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
+    QUERIES_TOTAL.labels(tenant_id=ctx.tenant_id, status="success").inc()
+    TOTAL_REQUEST_SECONDS.observe(time.perf_counter() - started)
     return RagResponse(
         answer=final["answer"] or "",
         citations=final["citations"],
