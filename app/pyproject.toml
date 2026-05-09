@@ -27,7 +27,7 @@ dependencies = [
     "tenacity>=9.0,<10",
     "fastapi>=0.115,<1",
     "pyjwt[crypto]>=2.9,<3",
-    "langgraph>=0.2,<1",
+    "langgraph>=0.2,<2",
     "pydantic-settings>=2.5,<3",
     "uvicorn[standard]>=0.30,<1",
 ]
