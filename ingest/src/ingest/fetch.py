@@ -35,7 +35,7 @@ from typing import Any, Literal
 import httpx
 import pypdf
 import yaml
-from markdownify import markdownify  # type: ignore[import-untyped]
+from markdownify import markdownify
 from pydantic import BaseModel, HttpUrl
 from tenacity import (
     AsyncRetrying,

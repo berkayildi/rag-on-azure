@@ -32,7 +32,7 @@ repos:
           - pydantic>=2.9,<3
           - tenacity>=9.0,<10
           - types-PyYAML>=6.0,<7
-          - markdownify>=0.13,<1
+          - markdownify>=0.13,<2
           - pypdf>=4.0,<5
           - tiktoken>=0.8,<1
           - langchain-text-splitters>=0.3,<0.4
