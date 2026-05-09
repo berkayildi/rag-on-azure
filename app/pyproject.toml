@@ -17,7 +17,7 @@ authors = [{ name = "Berkay Yildirim" }]
 dependencies = [
     "azure-identity>=1.18,<2",
     "azure-keyvault-secrets>=4.8,<5",
-    "azure-search-documents>=11.5,<12",
+    "azure-search-documents>=11.5,<13",
     # aiohttp is the runtime async transport for azure-identity.aio and
     # azure-search-documents.aio. Gated behind their [aio] extras in their
     # packaging but required at instantiation time. See AGENTS.md.
