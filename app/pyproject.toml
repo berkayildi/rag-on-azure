@@ -22,7 +22,7 @@ dependencies = [
     # azure-search-documents.aio. Gated behind their [aio] extras in their
     # packaging but required at instantiation time. See AGENTS.md.
     "aiohttp>=3.10,<4",
-    "openai>=1.50,<2",
+    "openai>=1.50,<3",
     "pydantic>=2.9,<3",
     "tenacity>=9.0,<10",
     "fastapi>=0.115,<1",
