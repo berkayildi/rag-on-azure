@@ -175,6 +175,44 @@ Result: after main has the role assigned in the live RG, every subsequent PR's `
 
 **Fix queued (separate commit):** thread `vars.AZURE_CI_PRINCIPAL_ID` through to the `bicep-whatif` step's `--parameters` overrides so what-if and deploy share the same parameter set.
 
+### `.pre-commit-config.yaml` `additional_dependencies` is structurally coupled to `pyproject.toml` but not auto-synced
+
+The `mypy` hook in `.pre-commit-config.yaml` runs in a pre-commit-managed isolated env and pins each typed dep separately under `additional_dependencies` (lines ~30–46). Those pins do NOT auto-update from `pyproject.toml` widening. When dependabot widens a range in `app/pyproject.toml` or `ingest/pyproject.toml`, CI installs the new major (because CI runs `pip install -e ./app -e ./ingest` against the live ranges) but local pre-commit's mypy still resolves to the old major (because pre-commit uses its own constrained range).
+
+Symptoms when this drifts:
+- CI lint fails with errors that local pre-commit didn't catch (e.g. `Unused "type: ignore"` when the new dep ships stubs the old one didn't).
+- Local pre-commit fails with errors CI doesn't see (e.g. `module is installed, but missing library stubs` when the new dep depends on stub packaging the old version lacked).
+
+Hit twice during Day 7 Wave 2: markdownify 0.13→2 (#15) and azure-search-documents 11→12 (#12). Both required a fix-forward that bumped the matching `additional_dependencies` entry alongside the code change.
+
+**Mitigation today:** every dependabot bump that widens a pyproject range also needs a parallel widen in `.pre-commit-config.yaml`. Done manually, easy to forget.
+
+**Day 8 options to consider:**
+1. Add a CI lint check that diff-greps `pyproject.toml` ranges against `.pre-commit-config.yaml` ranges and fails if they drift.
+2. Drop typed deps from `additional_dependencies` and accept `[import-untyped]` errors via a global mypy ignore — loses some type safety but eliminates the coupling.
+3. Switch the mypy hook to `language: system` so it uses the project venv (where the real `pip install -e` lives) — eliminates the isolated env entirely, but requires every developer to maintain a current venv before committing.
+
+### Lint short-circuit hides downstream signal in serial dep waves
+
+`ci.yml`'s `unit-tests`, `integration-tests`, and `build` jobs declare `needs: [lint, gitleaks, bicep-validate]`. When mypy fails, the whole post-lint chain (tests, build, deploy, eval-gate) is skipped. In a serial dep-bump wave (multiple back-to-back merges to main), one major's lint failure swallows downstream verification for every subsequent merge — even though those merges might be runtime-clean against their own changes.
+
+Hit during Day 7 Wave 2: PR #12 (azure-search-documents/app) broke lint; PRs #7 (openai/ingest), #10 (openai/app), and #16 (langgraph) all merged after it and inherited the same schema.py mypy failure, masking any of their own potential breakage. Once #12's root cause was fixed, all four were verified at once.
+
+**Day 8 options to consider:**
+1. Weaken `needs:` on `unit-tests`/`integration-tests` to `[gitleaks, bicep-validate]` only — accepts non-lint-clean code into the test stage and trades discipline for faster signal during multi-merge sequences.
+2. Add a separate `runtime-checks` job that depends on `[gitleaks, bicep-validate]` only and runs a minimal smoke import (`python -c "import rag_on_azure; import ingest"`) — gives early signal on import-time breakage without skipping lint as the gate.
+3. Stop merging dependabot PRs serially and batch them into a single merge train PR via dependabot's grouped-updates feature — single CI run, single fix, single rollback boundary.
+
+### `azure-search-documents` app/ingest version skew is silent until both ranges admit the same major
+
+`app/pyproject.toml` and `ingest/pyproject.toml` both declare `azure-search-documents` ranges. Pip resolves to the intersection. If only one side is widened (e.g. ingest goes `<13` while app stays `<12`), pip keeps installing the lower major and breakage stays hidden until BOTH sides admit the new major. Dependabot raises one PR per package per directory, so the two PRs land in arbitrary order — and the breakage often surfaces only on the second merge, even though the root cause is in code that the first merge "should have" exercised.
+
+Hit Day 7 Wave 2: #14 (ingest) widened to `<13` but resolved to 11.6 because app was still `<12`. #12 widened app to `<13`, pip flipped to 12.0, and the `SearchFieldDataType` Enum break in `ingest/src/ingest/schema.py` surfaced under #12's CI run rather than #14's.
+
+**Mitigation today:** when reviewing dependabot bumps for libraries that appear in both `app/` and `ingest/`, treat the second-merged PR as the actual integration test — that's where the resolver flip happens. Do not assume the first PR's green CI proves the bump is safe.
+
+**Permanent fix queued:** consolidate shared dep ranges into a single source (e.g. a top-level `requirements.shared.txt` referenced from both pyprojects) so dependabot raises one PR per shared package, not per directory. Out of scope for Day 7.
+
 ## Code conventions
 
 - **Python 3.12**, type-hinted, `mypy --strict` clean
