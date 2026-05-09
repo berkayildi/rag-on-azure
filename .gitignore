@@ -89,3 +89,5 @@ Thumbs.db
 
 # Claude Code session state
 .claude/
+.local-secrets/
+*.pem
