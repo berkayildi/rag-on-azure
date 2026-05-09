@@ -36,7 +36,7 @@ repos:
           - pypdf>=4.0,<5
           - tiktoken>=0.8,<1
           - langchain-text-splitters>=0.3,<0.4
-          - azure-search-documents>=11.5,<12
+          - azure-search-documents>=11.5,<13
           - azure-identity>=1.18,<2
           - azure-keyvault-secrets>=4.8,<5
           - openai>=1.50,<2

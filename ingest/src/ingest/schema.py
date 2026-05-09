@@ -45,44 +45,60 @@ HNSW_EF_SEARCH = 500
 
 
 def build_index() -> SearchIndex:
-    """Construct the ``corpus`` SearchIndex object — pure, no I/O."""
+    """Construct the ``corpus`` SearchIndex object — pure, no I/O.
+
+    Field ``type=`` values use ``.value`` extraction (e.g.
+    ``SearchFieldDataType.String.value``) and an f-string for the vector
+    Collection because azure-search-documents 12.x changed
+    ``SearchFieldDataType`` from a string-typed class to a
+    ``str``-subclassing ``Enum`` driven by ``CaseInsensitiveEnumMeta``.
+    Runtime accepts both Enum members and plain strings, but mypy
+    --strict cannot see through the metaclass's str inheritance and
+    rejects bare Enum members against ``SimpleField(type=str | …)`` and
+    rejects ``SearchFieldDataType.Collection(...)`` as not callable.
+    Extracting ``.value`` produces the underlying ``Edm.*`` string and
+    sidesteps the typing quirk entirely.
+    """
+    edm_string = SearchFieldDataType.String.value
+    edm_vector_collection = f"Collection({SearchFieldDataType.Single.value})"
+
     fields: list[SearchField] = [
         SimpleField(
             name="id",
-            type=SearchFieldDataType.String,
+            type=edm_string,
             key=True,
             filterable=True,
         ),
         SimpleField(
             name="tenant_id",
-            type=SearchFieldDataType.String,
+            type=edm_string,
             filterable=True,
             facetable=True,
         ),
         SimpleField(
             name="source",
-            type=SearchFieldDataType.String,
+            type=edm_string,
             filterable=True,
         ),
         SimpleField(
             name="section_path",
-            type=SearchFieldDataType.String,
+            type=edm_string,
         ),
         SearchableField(
             name="chunk_text",
-            type=SearchFieldDataType.String,
+            type=edm_string,
             analyzer_name=LexicalAnalyzerName.EN_LUCENE,
         ),
         SearchField(
             name="chunk_vector",
-            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            type=edm_vector_collection,
             searchable=True,
             vector_search_dimensions=VECTOR_DIMENSIONS,
             vector_search_profile_name=HNSW_PROFILE_NAME,
         ),
         SimpleField(
             name="content_hash",
-            type=SearchFieldDataType.String,
+            type=edm_string,
             filterable=True,
         ),
     ]
