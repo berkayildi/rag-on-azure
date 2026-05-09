@@ -16,11 +16,13 @@ which enforces the §5.3 audit-grade tenant filter.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from rag_on_azure.clients.llm import LLMClient
 from rag_on_azure.clients.search import TenantAwareSearchClient
+from rag_on_azure.metrics import RETRIEVAL_ERRORS, RETRIEVAL_LATENCY
 from rag_on_azure.state import GraphState
 
 
@@ -29,15 +31,22 @@ def make_retrieve_node(
     search: TenantAwareSearchClient,
 ) -> Callable[[GraphState], Awaitable[dict[str, Any]]]:
     async def retrieve(state: GraphState) -> dict[str, Any]:
-        query = state.rewritten_query or state.question
-        embeddings = await llm.embed([query])
-        chunks = await search.hybrid_search(
-            query=query,
-            query_vector=embeddings[0],
-            tenant_id=state.tenant_id,
-            filters=state.filters or None,
-            top_k=state.top_k,
-        )
-        return {"retrieved_chunks": chunks}
+        started = time.perf_counter()
+        try:
+            query = state.rewritten_query or state.question
+            embeddings = await llm.embed([query])
+            chunks = await search.hybrid_search(
+                query=query,
+                query_vector=embeddings[0],
+                tenant_id=state.tenant_id,
+                filters=state.filters or None,
+                top_k=state.top_k,
+            )
+            return {"retrieved_chunks": chunks}
+        except Exception as exc:
+            RETRIEVAL_ERRORS.labels(error_type=type(exc).__name__).inc()
+            raise
+        finally:
+            RETRIEVAL_LATENCY.observe(time.perf_counter() - started)
 
     return retrieve

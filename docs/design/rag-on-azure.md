@@ -207,7 +207,12 @@ class TenantAwareSearchClient:
 - `POST /query` — body: `{question, top_k?}`; auth: bearer JWT; returns `Answer` + citations + metadata
 - `GET /healthz` — liveness, returns 200 if graph constructed and clients reachable
 - `GET /readyz` — readiness, hits dependencies once
-- `GET /metrics` — Prometheus format
+- `GET /metrics` — Prometheus exposition (text/plain; version=0.0.4). **Public, no auth** in the demo posture (matches standard scrape-side expectations and the portfolio "demo this works" intent); production deployments should gate via Container Apps ingress allowlist or admin-JWT bearer (see `docs/security.md`). Exposes:
+  - `queries_total{tenant_id, status}` — counter; `status` ∈ `{success, error}`. Tenant cardinality grows linearly with tenant count; revisit at >100 tenants.
+  - `retrieval_errors_total{error_type}` and `generation_errors_total{error_type}` — counters labelled by exception class name. No tenant label (intentionally aggregates across tenants to bound cardinality).
+  - `retrieval_latency_seconds` — histogram, buckets `[0.005, 0.05, 0.1, 0.5, 1.0, 5.0]`.
+  - `generation_latency_seconds` and `total_request_seconds` — histograms, buckets `[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0]` (LLM-tuned, not the prometheus-client HTTP defaults).
+  - Standard `process_*`, `python_*`, and `python_gc_*` series auto-registered by `prometheus_client` at import time.
 - `POST /ingest` — admin-only, behind `tenant_admin` JWT claim
 
 ### 3.5 Auth flow
