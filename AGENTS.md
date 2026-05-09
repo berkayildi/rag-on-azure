@@ -260,8 +260,9 @@ Key paths:
 
 ## CI
 
-- `ci.yml` runs lint → unit → integration → secrets scan → build → bicep what-if → deploy dev → eval gate
+- `ci.yml` runs lint → unit → integration → secrets scan → build → bicep what-if → deploy dev → eval gate → publish-benchmarks
 - The `eval-gate` stage in `ci.yml` runs on every push to main: snapshots the live AI Search index (one tenant) to a JSONL via `eval/snapshot_corpus.py`, then runs `mcp-llm-eval evaluate-rag` against the snapshot. In-process eval, not a live HTTP-endpoint hit — see design spec §6.4 for the rationale.
+- The `publish-benchmarks` stage pushes the eval-gate JSON output to the `llm-benchmarks` repo (latest pointers + timestamped history) via a GitHub App install token. Gated on `vars.LLMSHOT_PUSH_ENABLED == 'true'` and `continue-on-error: true` — best-effort, skipped silently on forks. See design spec §13.
 - `release-please.yml` handles versioning automation
 - Auth to Azure: GitHub OIDC federation. No long-lived service principal secret.
 

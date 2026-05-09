@@ -33,6 +33,10 @@ For local development, copy [`.env.example`](.env.example) to `.env` and fill in
 
 Full surface specification in [`docs/design/rag-on-azure.md`](docs/design/rag-on-azure.md) §3.4.
 
+## Benchmark publication
+
+Every CI run on `main` whose `eval-gate` passes pushes the resulting summary and per-query benchmark JSONs to the [`llm-benchmarks`](https://github.com/berkayildi/llm-benchmarks) repo: latest pointers under `retrieval/azure-{summary,benchmark}.json` for current-state views, plus a timestamped pair under `retrieval/history/` for drift charts. Mechanism is a GitHub App install token (`actions/create-github-app-token@v1`); the job is best-effort (`continue-on-error: true`) and gated on `vars.LLMSHOT_PUSH_ENABLED == 'true'` so forks unconnected to the llmshot ecosystem skip it silently. Full details in [`docs/design/rag-on-azure.md`](docs/design/rag-on-azure.md) §13.
+
 ## Licence
 
 Released under the [MIT Licence](LICENSE).

@@ -283,3 +283,77 @@ jobs:
           # the threshold check fires, so we want them uploaded regardless of
           # gate pass/fail.
           include-hidden-files: true
+
+  publish-benchmarks:
+    name: Publish benchmarks to llm-benchmarks
+    runs-on: ubuntu-latest
+    needs: [eval-gate]
+    # Same main-only push gate as eval-gate, plus the fork toggle: forks
+    # without LLMSHOT_PUSH_ENABLED=true skip silently. Job is best-effort
+    # (continue-on-error) per the design D5 verdict — eval-gate's contract
+    # is that the deployed RAG meets quality thresholds, not that the
+    # benchmark data layer is reachable.
+    if: |
+      github.ref == 'refs/heads/main'
+      && github.event_name != 'pull_request'
+      && vars.LLMSHOT_PUSH_ENABLED == 'true'
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Mint GitHub App install token (scoped to llm-benchmarks)
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.LLMSHOT_APP_ID }}
+          private-key: ${{ secrets.LLMSHOT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: llm-benchmarks
+      - name: Download eval-results artefact
+        uses: actions/download-artifact@v4
+        with:
+          name: eval-results-${{ github.sha }}
+          path: ./eval-results
+      - name: Checkout llm-benchmarks
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.repository_owner }}/llm-benchmarks
+          token: ${{ steps.app-token.outputs.token }}
+          path: llm-benchmarks-target
+      - name: Place artefacts at expected paths
+        # Two pointer files (overwritten each run) plus a timestamped
+        # pair under history/ (append-only). Pointer files feed llmshot's
+        # "current" view; history feeds drift charts. See design §13.1.
+        run: |
+          set -euo pipefail
+          SHA_SHORT="${GITHUB_SHA:0:7}"
+          TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
+          TARGET="llm-benchmarks-target/retrieval"
+          HIST="$TARGET/history"
+          mkdir -p "$HIST"
+          LATEST_BENCHMARK=$(ls -t eval-results/*_rag_benchmark.json | head -1)
+          if [ -z "$LATEST_BENCHMARK" ]; then
+            echo "no rag_benchmark JSON found in eval-results/" >&2
+            exit 1
+          fi
+          cp eval-results/latest_rag_summary.json "$TARGET/azure-summary.json"
+          cp "$LATEST_BENCHMARK" "$TARGET/azure-benchmark.json"
+          cp eval-results/latest_rag_summary.json \
+            "$HIST/azure-${SHA_SHORT}-${TIMESTAMP}-summary.json"
+          cp "$LATEST_BENCHMARK" \
+            "$HIST/azure-${SHA_SHORT}-${TIMESTAMP}-benchmark.json"
+      - name: Commit and push to llm-benchmarks main
+        working-directory: llm-benchmarks-target
+        run: |
+          set -euo pipefail
+          SHA_SHORT="${GITHUB_SHA:0:7}"
+          TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add retrieval/
+          if git diff --cached --quiet; then
+            echo "no changes to publish (rare: identical eval results)"
+            exit 0
+          fi
+          git commit -m "chore(azure): bench ${SHA_SHORT} ${TIMESTAMP}"
+          git push
