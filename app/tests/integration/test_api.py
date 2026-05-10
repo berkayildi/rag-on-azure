@@ -317,7 +317,7 @@ def test_query_dev_mode_400_on_invalid_tenant_id_in_jwt() -> None:
 
 def test_ingest_requires_auth() -> None:
     """No Authorization header → 401 from the auth boundary, before the
-    admin gate or the 501 stub is reached."""
+    admin gate is reached."""
     app = create_app()
     client = TestClient(app)
     response = client.post("/ingest")
@@ -326,7 +326,7 @@ def test_ingest_requires_auth() -> None:
 
 def test_ingest_dev_mode_requires_admin_claim() -> None:
     """A valid token without ``tenant_admin`` is rejected by the admin
-    gate with 403; the 501 stub is never reached."""
+    gate with 403; the route handler is never reached."""
     app = create_app()
     client = TestClient(app)
     token = _mint({"sub": "u", "tenant_id": "demo"})  # no tenant_admin
@@ -335,17 +335,52 @@ def test_ingest_dev_mode_requires_admin_claim() -> None:
     assert response.json()["detail"] == "admin claim required"
 
 
-def test_ingest_dev_mode_admin_token_passes_gate_returns_501() -> None:
-    """Admin token passes the gate; the route itself returns 501 — the
-    auth gate is the Day 6 deliverable, pipeline lands Day 7."""
+def test_ingest_admin_returns_202_with_run_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Admin token → 202 + {status, run_id}. The pipeline is mocked so
+    we don't need real Azure credentials; the route's contract is the
+    response shape and the lock lifecycle, not the pipeline internals."""
+    import uuid as _uuid
+
+    from rag_on_azure.api import routes as routes_module
+
+    async def _noop_pipeline(*args: Any, **kwargs: Any) -> None:
+        # Mirrors the lock-release contract of the real pipeline.
+        routes_module._ingest_lock.release()
+
+    monkeypatch.setattr(routes_module, "_run_ingest_pipeline", _noop_pipeline)
+
     app = create_app()
     client = TestClient(app)
     token = _mint({"sub": "u", "tenant_id": "demo", "tenant_admin": True})
     response = client.post("/ingest", headers={"Authorization": f"Bearer {token}"})
-    assert response.status_code == 501
-    detail = response.json()["detail"]
-    assert "not yet wired" in detail
-    assert "Day 7" in detail
+    assert response.status_code == 202
+    body = response.json()
+    assert body["status"] == "started"
+    # uuid4 raises on a malformed string; that's our shape assertion.
+    _uuid.UUID(body["run_id"], version=4)
+
+
+def test_ingest_concurrent_returns_409(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the module-level lock reports locked, the route returns 409
+    instead of starting a duplicate run on the same replica.
+
+    Patches ``_ingest_lock.locked`` to return True rather than holding
+    the real lock — TestClient runs the app in its own event loop and
+    the lock instance is awaitable from there but not from the sync
+    test body, so a stub is the cleanest way to assert the route's
+    branch."""
+    from rag_on_azure.api import routes as routes_module
+
+    monkeypatch.setattr(routes_module._ingest_lock, "locked", lambda: True)
+
+    app = create_app()
+    client = TestClient(app)
+    token = _mint({"sub": "u", "tenant_id": "demo", "tenant_admin": True})
+    response = client.post("/ingest", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 409
+    assert "already in progress" in response.json()["detail"]
 
 
 def test_ingest_rejects_unsigned_when_dev_auth_off(
@@ -456,13 +491,20 @@ def test_query_under_prod_mode_cross_tenant_attempt_isolated(
     assert citation_ids == {"demo-chunk"}
 
 
-def test_ingest_admin_token_under_prod_mode_returns_501(
+def test_ingest_admin_token_under_prod_mode_returns_202(
     monkeypatch: pytest.MonkeyPatch, rsa_keypair: tuple[str, str]
 ) -> None:
     """Full chain under prod-mode for the admin route: signed token →
     signature verified against KV-fetched public PEM → tenant_admin
-    claim accepted by ``get_current_admin`` → route reaches its 501
-    stub. No layer is short-circuited."""
+    claim accepted by ``get_current_admin`` → route reaches its
+    pipeline (mocked) and returns 202. No layer is short-circuited."""
+    from rag_on_azure.api import routes as routes_module
+
+    async def _noop_pipeline(*args: Any, **kwargs: Any) -> None:
+        routes_module._ingest_lock.release()
+
+    monkeypatch.setattr(routes_module, "_run_ingest_pipeline", _noop_pipeline)
+
     client, _, _, private_pem = _wire_prod_mode(monkeypatch, rsa_keypair)
     token = _mint_signed(
         {"sub": "u", "tenant_id": "demo", "tenant_admin": True},
@@ -474,4 +516,5 @@ def test_ingest_admin_token_under_prod_mode_returns_501(
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert response.status_code == 501
+    assert response.status_code == 202
+    assert response.json()["status"] == "started"

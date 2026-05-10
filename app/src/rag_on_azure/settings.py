@@ -11,11 +11,21 @@ the dev-mode auth code in place, an operator must explicitly set
 ``ENABLE_DEV_AUTH=true`` to enable the dev path. Defence in depth.
 Day 6 inverts the meaning: signature verification becomes the default
 path; the flag goes away.
+
+``ingest_manifest_path`` and ``ingest_cache_dir`` drive the Phase 5
+``POST /ingest`` route. Defaults work for local dev (relative paths
+from the repo root); the container image overrides ``INGEST_MANIFEST_PATH``
+in the Dockerfile to point at the baked-in copy at
+``/opt/rag-on-azure/corpus_manifest.yaml``. ``/tmp/ingest-cache`` is
+ephemeral but works for the in-container case because the ingest
+pipeline's content-hash sweep makes cold-cache cost a one-shot
+re-fetch — chunks unchanged in Azure Search are skipped.
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -37,6 +47,8 @@ class Settings(BaseSettings):
     key_vault_uri: str
     log_level: str = "INFO"
     enable_dev_auth: bool = False
+    ingest_manifest_path: Path = Path("ingest/corpus_manifest.yaml")
+    ingest_cache_dir: Path = Path("/tmp/ingest-cache")
 
 
 @lru_cache(maxsize=1)

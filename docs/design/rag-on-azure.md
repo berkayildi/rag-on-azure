@@ -213,7 +213,7 @@ class TenantAwareSearchClient:
   - `retrieval_latency_seconds` — histogram, buckets `[0.005, 0.05, 0.1, 0.5, 1.0, 5.0]`.
   - `generation_latency_seconds` and `total_request_seconds` — histograms, buckets `[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0]` (LLM-tuned, not the prometheus-client HTTP defaults).
   - Standard `process_*`, `python_*`, and `python_gc_*` series auto-registered by `prometheus_client` at import time.
-- `POST /ingest` — admin-only, behind `tenant_admin` JWT claim
+- `POST /ingest` — admin-only, behind `tenant_admin` JWT claim. Empty body. Schedules the corpus pipeline (`ingest.fetch` → `ingest.chunk` → `ingest.index`, same code path as `make ingest`) as a FastAPI `BackgroundTasks`, returns **202 Accepted** with `{"status": "started", "run_id": "<uuid4>"}`. The `run_id` flows into structured logs as the `run_id` extra so operators can grep one invocation. A module-level `asyncio.Lock` prevents concurrent runs on the same replica; concurrent POST returns **409 Conflict**. Cross-replica races are an accepted operational quirk (see AGENTS.md) — the content-hash sweep in `ingest.index` makes them wasteful but safe. Tenants written are taken from the manifest (default `demo`); the admin's JWT authorises the action, not the destination tenant. Manifest path is configurable via `INGEST_MANIFEST_PATH` (the container image bakes the manifest at `/opt/rag-on-azure/corpus_manifest.yaml`); cache directory via `INGEST_CACHE_DIR` (default `/tmp/ingest-cache`, ephemeral).
 
 ### 3.5 Auth flow
 
@@ -249,6 +249,15 @@ Markdown-aware splitter (langchain `MarkdownHeaderTextSplitter` then recursive `
 ### 4.4 Embedding
 
 Batched calls to `text-embedding-3-small` via `LLMClient.embed`. Idempotent — re-running ingest skips chunks whose hash is unchanged.
+
+### 4.5 Two invocation paths, one pipeline
+
+The same fetch → chunk → index pipeline is exposed two ways:
+
+- **Operator-side (`make ingest` → `python -m ingest all`)** — the originating path; runs from a developer machine against the dev resource group. Used for first-deploy seeding, schema migrations, and manual re-fetches.
+- **API-side (`POST /ingest`)** — added in Phase 5; admin-gated FastAPI route that schedules the same pipeline as a background task inside the deployed Container App. Used for "trigger from outside the dev machine" scenarios (CI smoke, scheduled jobs, dashboards).
+
+Both paths share the same `corpus_manifest.yaml`, the same idempotent content-hash sweep, and the same managed-identity write-side. The HTTP path is an alternate trigger, not a parallel implementation. Cross-replica concurrency on the API path is bounded by `asyncio.Lock` per replica plus the design-D5 acceptance that cross-replica races are wasteful-but-safe.
 
 ## 5. Tenant isolation
 
