@@ -37,6 +37,14 @@ Full surface specification in [`docs/design/rag-on-azure.md`](docs/design/rag-on
 
 Every CI run on `main` whose `eval-gate` passes pushes the resulting summary and per-query benchmark JSONs to the [`llm-benchmarks`](https://github.com/berkayildi/llm-benchmarks) repo: latest pointers under `retrieval/azure-{summary,benchmark}.json` for current-state views, plus a timestamped pair under `retrieval/history/` for drift charts. Mechanism is a GitHub App install token (`actions/create-github-app-token@v1`); the job is best-effort (`continue-on-error: true`) and gated on `vars.LLMSHOT_PUSH_ENABLED == 'true'` so forks unconnected to the llmshot ecosystem skip it silently. Full details in [`docs/design/rag-on-azure.md`](docs/design/rag-on-azure.md) §13.
 
+## Roadmap
+
+Items deferred from v1 and tracked for a future v0.x release:
+
+- **Azure Pipelines mirror** — the original v1 spec called for an `azure-pipelines.yml` mirror of the GitHub Actions pipeline. The mirror is deferred: GitHub Actions is now the canonical CI (10 jobs including OIDC, eval-gate, cross-repo App-token publish), and a partial mirror would be worse than none. Forks running on Azure DevOps can port the pipeline structure documented in [`docs/design/rag-on-azure.md`](docs/design/rag-on-azure.md) §6.1; a faithful first-party mirror lands when GitHub Actions stabilises. Full rationale in [`§6.2`](docs/design/rag-on-azure.md).
+- **Container Apps Job for `/ingest`** — the current implementation schedules ingest as a FastAPI background task and is documented as susceptible to scale-to-zero kill mid-run (see [`AGENTS.md`](AGENTS.md) operational quirks). The prod-grade upgrade is a dedicated Container Apps Job; design spec [`§4.5`](docs/design/rag-on-azure.md).
+- **Two-app-registration split for CI federated identity** — current single-app + workflow-gating is acceptable for dev; the prod posture upgrade lives in [`docs/security.md`](docs/security.md).
+
 ## Licence
 
 Released under the [MIT Licence](LICENSE).

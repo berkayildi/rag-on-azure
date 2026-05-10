@@ -157,16 +157,6 @@ If a future change appears to need Bicep-managed secrets (e.g. a `Microsoft.KeyV
 
 The `--type system` flag returns environment-level system logs (image-pull, scale events, replica scheduling) but does not accept the `--revision`, `--container`, or `--replica` filters that work for `--type console` (the default). Combining them errors. To target system logs from a specific revision, query Log Analytics directly via `az monitor log-analytics query` against the workspace `customerId` and filter on `RevisionName_s` in KQL.
 
-### `make apply` locally would regress the running image to `latest-dev`
-
-`infra/main.bicep` declares `param containerImage string = 'ghcr.io/berkayildi/rag-on-azure:latest-dev'`, and `infra/main.parameters.json` does not override it. CI's deploy job passes `--parameters containerImage=ghcr.io/berkayildi/rag-on-azure:sha-<short>` so CI deploys are correctly pinned to immutable sha tags. A local `make apply` (or any `azd provision` / `az deployment group create` that uses `main.parameters.json` without an override) would re-template the running revision back to mutable `latest-dev` — a regression away from the immutable-sha discipline.
-
-Surfaced during the Day 7 Phase 1 keyvault `make plan` run as a `~ Modify` entry on `Microsoft.App/containerApps/rag-dev-ca` showing `image: "sha-d130e51" => "latest-dev"`. The drift exists on `main` independent of any Bicep edit: it's a property of the parameter wiring, not of the resources themselves.
-
-**Mitigation today:** do not run `make apply` locally against the dev (or any) resource group. All apply operations go through CI, which supplies the sha override. Local `make plan` is fine — read-only.
-
-**Permanent fix queued (separate commit, out of scope of the keyvault PR):** either (a) replace the `latest-dev` default with a sentinel that errors when not explicitly overridden, forcing every deploy path to declare a tag; or (b) commit the current sha to `infra/main.parameters.json` and add an automated bump pattern (CI updates the parameters file as part of the deploy job). Option (a) is simpler and harder to drift from.
-
 ### `bicep-whatif` shows `ciPrincipalId` role assignment as would-be-deleted on subsequent PRs
 
 The `eval-gate` job needs the OIDC-federated CI service principal to have `Search Index Data Reader` on the search service; this is granted by a conditional role assignment in `infra/modules/search.bicep` driven by the `ciPrincipalId` parameter. CI's `deploy` step passes `ciPrincipalId=${{ vars.AZURE_CI_PRINCIPAL_ID }}` so the assignment lands. CI's `bicep-whatif` step does NOT pass that override — it relies on `infra/main.parameters.example.json`, which has `"ciPrincipalId": { "value": "" }`.
@@ -185,12 +175,7 @@ Symptoms when this drifts:
 
 Hit twice during Day 7 Wave 2: markdownify 0.13→2 (#15) and azure-search-documents 11→12 (#12). Both required a fix-forward that bumped the matching `additional_dependencies` entry alongside the code change.
 
-**Mitigation today:** every dependabot bump that widens a pyproject range also needs a parallel widen in `.pre-commit-config.yaml`. Done manually, easy to forget.
-
-**Day 8 options to consider:**
-1. Add a CI lint check that diff-greps `pyproject.toml` ranges against `.pre-commit-config.yaml` ranges and fails if they drift.
-2. Drop typed deps from `additional_dependencies` and accept `[import-untyped]` errors via a global mypy ignore — loses some type safety but eliminates the coupling.
-3. Switch the mypy hook to `language: system` so it uses the project venv (where the real `pip install -e` lives) — eliminates the isolated env entirely, but requires every developer to maintain a current venv before committing.
+**Mitigation today:** every dependabot bump that widens a pyproject range also needs a parallel widen in `.pre-commit-config.yaml`. Done manually, easy to forget. Trade-off explicitly accepted for v1 — the alternatives (a CI diff-grep check, dropping typed deps from `additional_dependencies`, or switching the hook to `language: system`) each have their own friction. Re-evaluate when Wave 3 of dependabot bumps lands.
 
 ### Lint short-circuit hides downstream signal in serial dep waves
 
@@ -198,10 +183,7 @@ Hit twice during Day 7 Wave 2: markdownify 0.13→2 (#15) and azure-search-docum
 
 Hit during Day 7 Wave 2: PR #12 (azure-search-documents/app) broke lint; PRs #7 (openai/ingest), #10 (openai/app), and #16 (langgraph) all merged after it and inherited the same schema.py mypy failure, masking any of their own potential breakage. Once #12's root cause was fixed, all four were verified at once.
 
-**Day 8 options to consider:**
-1. Weaken `needs:` on `unit-tests`/`integration-tests` to `[gitleaks, bicep-validate]` only — accepts non-lint-clean code into the test stage and trades discipline for faster signal during multi-merge sequences.
-2. Add a separate `runtime-checks` job that depends on `[gitleaks, bicep-validate]` only and runs a minimal smoke import (`python -c "import rag_on_azure; import ingest"`) — gives early signal on import-time breakage without skipping lint as the gate.
-3. Stop merging dependabot PRs serially and batch them into a single merge train PR via dependabot's grouped-updates feature — single CI run, single fix, single rollback boundary.
+**Trade-off accepted for v1:** the lint-as-precondition discipline is strong signal in the common case (single bump per PR). The alternatives (weaken `needs:` to `[gitleaks, bicep-validate]`, add a parallel runtime-smoke job, or use dependabot's grouped-updates feature for serial waves) each trade lint discipline or scheduling guarantees for faster mid-wave signal. Revisit when the next major dep wave lands.
 
 ### `azure-search-documents` app/ingest version skew is silent until both ranges admit the same major
 
@@ -211,7 +193,7 @@ Hit Day 7 Wave 2: #14 (ingest) widened to `<13` but resolved to 11.6 because app
 
 **Mitigation today:** when reviewing dependabot bumps for libraries that appear in both `app/` and `ingest/`, treat the second-merged PR as the actual integration test — that's where the resolver flip happens. Do not assume the first PR's green CI proves the bump is safe.
 
-**Permanent fix queued:** consolidate shared dep ranges into a single source (e.g. a top-level `requirements.shared.txt` referenced from both pyprojects) so dependabot raises one PR per shared package, not per directory. Out of scope for Day 7.
+**Permanent fix queued:** consolidate shared dep ranges into a single source (e.g. a top-level `requirements.shared.txt` referenced from both pyprojects) so dependabot raises one PR per shared package, not per directory. Out of scope for v1.
 
 ### `POST /ingest` background task can be killed mid-run by Container Apps scale-to-zero
 
@@ -256,6 +238,13 @@ This repo uses **Release Please** (per the `auto-release-bootstrapper` skill) fo
 ## Repo structure
 
 See `docs/design/rag-on-azure.md` §1 for the canonical tree.
+
+## Where else to look
+
+- **Architecture overview** with request-flow diagram and component summaries: [`docs/architecture.md`](docs/architecture.md).
+- **Day-1 deployment runbook** (twelve steps, clean checkout to first green CI on main): [`docs/deployment.md`](docs/deployment.md).
+- **Threat model + secret inventory + per-route auth posture + hardening upgrades**: [`docs/security.md`](docs/security.md).
+- **Full design spec** (the canonical source of truth): [`docs/design/rag-on-azure.md`](docs/design/rag-on-azure.md).
 
 Key paths:
 

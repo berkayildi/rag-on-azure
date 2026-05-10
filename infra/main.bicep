@@ -25,8 +25,8 @@ param searchSku string = 'free'
 @description('Tenant IDs to seed. Reserved for the ingest pipeline; not consumed by infra in v0.1. Surfaced as an output so downstream tooling can read it back.')
 param tenantSeedIds array = []
 
-@description('Container image to deploy. Day 5 swaps from the MCR placeholder to the GHCR image built by .github/workflows/build-image.yml. Day 7 CI will pin to immutable sha-<short> tags; latest-dev is correct for the v0.1 manual deploy loop.')
-param containerImage string = 'ghcr.io/berkayildi/rag-on-azure:latest-dev'
+@description('Container image to deploy. REQUIRED — no default. Every deploy path MUST pass an immutable sha-<short> tag (e.g. `ghcr.io/berkayildi/rag-on-azure:sha-abc1234`) via `--parameters containerImage=...`. CI\'s deploy + bicep-whatif jobs in `.github/workflows/ci.yml` already do this; local `make plan/apply` must too, or Bicep refuses the deployment at parameter validation. Closes the AGENTS.md operational quirk where the prior `latest-dev` default would silently regress the running revision on a local apply. Bicep `assert` would have been ideal but is still experimental (BCP349); a required param achieves the same fail-at-validation guarantee with no preview-feature dependency.')
+param containerImage string
 
 @description('Optional. Object ID of a developer principal granted Search Index Data Contributor on the search service so a human can run `make ingest` locally. Set this in the gitignored `main.parameters.json` only — never commit a real GUID. See README §Development.')
 param developerPrincipalId string = ''
