@@ -213,6 +213,22 @@ Hit Day 7 Wave 2: #14 (ingest) widened to `<13` but resolved to 11.6 because app
 
 **Permanent fix queued:** consolidate shared dep ranges into a single source (e.g. a top-level `requirements.shared.txt` referenced from both pyprojects) so dependabot raises one PR per shared package, not per directory. Out of scope for Day 7.
 
+### `POST /ingest` background task can be killed mid-run by Container Apps scale-to-zero
+
+The Phase 5 `/ingest` route schedules the corpus pipeline as a FastAPI `BackgroundTasks` callback. Background tasks run AFTER the HTTP response is returned, in the same uvicorn worker process. Container Apps scale-to-zero applies an idle timeout (default 5 min of no traffic) and terminates the replica — including any in-flight background task. Ingest takes minutes to half an hour; any of those minutes can land on the kill window.
+
+**Mitigation today:** the pipeline is idempotent (content-hash sweep in `ingest.index`), so a killed run can be retried and only the unfinished chunks get re-processed. Operators who want guaranteed completion should keep traffic alive (`curl /healthz` from cron during ingest), or temporarily set `min replicas = 1` on the Container App for the duration of the ingest.
+
+**Permanent fix queued:** move ingest to a dedicated Container Apps **Job** (designed for batch work, no scale-to-zero kill semantics). Out of scope for the demo posture; documented as the prod-grade upgrade path in design spec §4.5.
+
+### `POST /ingest` costs ~£0.50–£1 of Azure OpenAI embedding tokens per full run
+
+The current `corpus_manifest.yaml` produces ~931 chunks. A cold-cache ingest embeds all of them via `text-embedding-3-small` (one batched call per upload batch of 100). On the dev SKU pricing this lands around £0.50–£1.00 per full re-ingest. Subsequent runs against an unchanged corpus are near-free because `ingest.index`'s content-hash sweep skips the embedding call.
+
+**Mitigation today:** none structural — admins should be aware that hitting `POST /ingest` repeatedly burns embedding budget. Eval-gate's £25 build-phase budget assumed a single one-shot seed; multiple full re-ingests can erode that envelope.
+
+**Permanent fix queued:** none. The cost is the work; idempotency already minimises it.
+
 ## Code conventions
 
 - **Python 3.12**, type-hinted, `mypy --strict` clean

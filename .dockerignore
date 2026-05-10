@@ -41,9 +41,14 @@ env/
 infra/
 docs/
 eval/
-ingest/
 scripts/
 app/tests/
+# ingest/src + ingest/pyproject.toml + ingest/corpus_manifest.yaml ship
+# in the image because POST /ingest imports the pipeline directly
+# (Phase 5). Tests and the local fetch cache do not.
+ingest/tests/
+ingest/.cache/
+ingest/.pytest_cache/
 
 # Top-level docs and tooling
 *.md

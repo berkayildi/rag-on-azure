@@ -62,3 +62,22 @@ TOTAL_REQUEST_SECONDS = Histogram(
     "End-to-end /query handler wall-clock latency.",
     buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0),
 )
+
+INGEST_RUNS_TOTAL = Counter(
+    "ingest_runs_total",
+    "Total /ingest runs, labelled by terminal outcome.",
+    labelnames=("status",),
+)
+
+INGEST_DURATION_SECONDS = Histogram(
+    "ingest_duration_seconds",
+    "Wall-clock duration of an /ingest run, end to end.",
+    # Ingest is minutes-scale (fetch + chunk + embed + upload); buckets
+    # tuned for that band, not the request-scale buckets above.
+    buckets=(10, 60, 300, 600, 1800),
+)
+
+INGEST_CHUNKS_INDEXED_TOTAL = Counter(
+    "ingest_chunks_indexed_total",
+    "Total chunks uploaded to the search index across all /ingest runs.",
+)

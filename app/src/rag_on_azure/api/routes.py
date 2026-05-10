@@ -22,9 +22,15 @@ flows JWT → ``get_current_tenant`` → ``TenantContext`` → ``GraphState``;
 the request body never carries a tenant identifier (§5.3).
 
 ``/ingest`` is admin-only (``tenant_admin`` JWT claim, enforced via
-``get_current_admin``). Day 6 ships the auth-gated route shape; the
-ingest pipeline invocation lands with the Day 7 ingest-CI work, so
-the route itself currently returns 501.
+``get_current_admin``). The route schedules the existing
+``ingest.fetch`` → ``ingest.chunk`` → ``ingest.index`` pipeline as a
+FastAPI background task and returns 202 with a UUID4 ``run_id`` so
+operators can grep one ingest invocation cleanly in logs and metrics.
+A module-level ``asyncio.Lock`` prevents concurrent runs on the same
+replica; cross-replica races are documented in AGENTS.md (the
+content-hash sweep in ``ingest.index`` makes those wasteful but safe).
+Tenants written are taken from the manifest (default ``demo``); the
+admin's JWT authorises the action, not the destination tenant.
 """
 
 from __future__ import annotations
@@ -32,17 +38,26 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 from typing import Annotated, Any, Protocol
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, Response
 from langgraph.graph.state import CompiledStateGraph
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from rag_on_azure.api.schemas import RagRequest, RagResponse, TenantContext
 from rag_on_azure.auth import get_current_admin, get_current_tenant
-from rag_on_azure.metrics import QUERIES_TOTAL, TOTAL_REQUEST_SECONDS
+from rag_on_azure.metrics import (
+    INGEST_CHUNKS_INDEXED_TOTAL,
+    INGEST_DURATION_SECONDS,
+    INGEST_RUNS_TOTAL,
+    QUERIES_TOTAL,
+    TOTAL_REQUEST_SECONDS,
+)
 from rag_on_azure.nodes.generate import CitationContractError
+from rag_on_azure.settings import get_settings
 from rag_on_azure.state import GraphState
 
 log = logging.getLogger(__name__)
@@ -175,17 +190,126 @@ async def query(
     )
 
 
-@router.post("/ingest")
+# Module-level lock prevents concurrent ingest runs on the same replica.
+# Cross-replica races exist when Container App scales >1 (documented in
+# AGENTS.md); the content-hash sweep in ingest.index makes a race wasteful
+# but not destructive. Acquired in the route handler, released in the
+# background task's finally block — the lock outlives the HTTP response.
+_ingest_lock = asyncio.Lock()
+
+
+async def _run_ingest_pipeline(
+    run_id: str,
+    manifest_path: Path,
+    cache_dir: Path,
+) -> None:
+    """Background task body: fetch → chunk → index, with metrics + structured
+    logs keyed on ``run_id`` so operators can correlate one invocation."""
+    extra = {"run_id": run_id}
+    started = time.perf_counter()
+    try:
+        # Imports are deferred so that pulling in the ingest package's
+        # transitive heavy deps (langchain-text-splitters, pypdf, tiktoken,
+        # markdownify) only happens when the route fires, not at app boot.
+        from azure.identity.aio import DefaultAzureCredential
+        from azure.search.documents.aio import SearchClient
+        from azure.search.documents.indexes.aio import SearchIndexClient
+
+        from ingest.chunk import chunk_all
+        from ingest.fetch import fetch_all
+        from ingest.index import index_all
+        from rag_on_azure.clients.llm import AzureOpenAIClient
+
+        settings = get_settings()
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        log.info("ingest %s: fetch starting", run_id, extra=extra)
+        await fetch_all(manifest_path, cache_dir)
+
+        log.info("ingest %s: chunk starting", run_id, extra=extra)
+        await asyncio.to_thread(chunk_all, cache_dir)
+
+        log.info("ingest %s: index starting", run_id, extra=extra)
+        credential = DefaultAzureCredential()
+        try:
+            embedder = AzureOpenAIClient(
+                endpoint=settings.azure_openai_endpoint,
+                embedding_deployment=settings.azure_openai_embedding_deployment,
+                chat_deployment=settings.azure_openai_chat_deployment,
+                credential=credential,
+            )
+            search_index_client = SearchIndexClient(
+                endpoint=settings.azure_search_endpoint, credential=credential
+            )
+            search_client = SearchClient(
+                endpoint=settings.azure_search_endpoint,
+                index_name=settings.azure_search_index_name,
+                credential=credential,
+            )
+            try:
+                summary = await index_all(
+                    cache_dir,
+                    embedder=embedder,
+                    search_client=search_client,
+                    search_index_client=search_index_client,
+                )
+                INGEST_CHUNKS_INDEXED_TOTAL.inc(summary["uploaded"])
+                log.info(
+                    "ingest %s: complete (uploaded=%d unchanged=%d)",
+                    run_id,
+                    summary["uploaded"],
+                    summary["unchanged"],
+                    extra=extra,
+                )
+            finally:
+                await embedder.close()
+                await search_client.close()
+                await search_index_client.close()
+        finally:
+            await credential.close()
+
+        INGEST_RUNS_TOTAL.labels(status="success").inc()
+    except Exception:
+        log.exception("ingest %s: failed", run_id, extra=extra)
+        INGEST_RUNS_TOTAL.labels(status="error").inc()
+    finally:
+        INGEST_DURATION_SECONDS.observe(time.perf_counter() - started)
+        _ingest_lock.release()
+
+
+@router.post("/ingest", status_code=status.HTTP_202_ACCEPTED)
 async def ingest(
+    background_tasks: BackgroundTasks,
     ctx: Annotated[TenantContext, Depends(get_current_admin)],
 ) -> dict[str, str]:
-    """Admin-only ingest trigger. Day 6 ships the auth gate; pipeline
-    invocation lands Day 7 with the ingest-CI work (§6)."""
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=(
-            "ingest pipeline invocation is not yet wired; the route + "
-            "tenant_admin gate are the Day 6 deliverable. Pipeline "
-            "invocation lands Day 7 — see docs/design/rag-on-azure.md §6."
-        ),
+    """Admin-only ingest trigger. Schedules the corpus pipeline as a
+    background task; returns 202 with a UUID4 ``run_id`` for log/metric
+    correlation. 409 if a run is already in flight on this replica."""
+    if _ingest_lock.locked():
+        INGEST_RUNS_TOTAL.labels(status="conflict").inc()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="ingest already in progress on this replica",
+        )
+
+    # Acquire synchronously between the .locked() check and the schedule;
+    # asyncio.Lock.acquire() returns immediately when free with no
+    # intervening await, so no concurrent acquirer can interpose.
+    await _ingest_lock.acquire()
+
+    settings = get_settings()
+    run_id = str(uuid4())
+    log.info(
+        "ingest %s: queued (manifest=%s cache=%s)",
+        run_id,
+        settings.ingest_manifest_path,
+        settings.ingest_cache_dir,
+        extra={"run_id": run_id},
     )
+    background_tasks.add_task(
+        _run_ingest_pipeline,
+        run_id=run_id,
+        manifest_path=settings.ingest_manifest_path,
+        cache_dir=settings.ingest_cache_dir,
+    )
+    return {"status": "started", "run_id": run_id}

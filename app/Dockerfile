@@ -25,17 +25,24 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 
 WORKDIR /build
 
-COPY app/pyproject.toml ./pyproject.toml
-COPY app/src ./src
+# Both packages installed: app for the FastAPI surface, ingest because
+# Phase 5's POST /ingest route imports the corpus pipeline directly and
+# schedules it as a background task. .dockerignore admits ingest/src and
+# ingest/pyproject.toml; ingest/tests and ingest/.cache stay excluded.
+COPY app/pyproject.toml ./app/pyproject.toml
+COPY app/src ./app/src
+COPY ingest/pyproject.toml ./ingest/pyproject.toml
+COPY ingest/src ./ingest/src
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --prefix=/install .
+    pip install --prefix=/install ./app ./ingest
 
 
 FROM python:3.12-slim-bookworm AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    INGEST_MANIFEST_PATH=/opt/rag-on-azure/corpus_manifest.yaml
 
 # Non-root user. uid 1001 is conventional for app containers and avoids
 # colliding with system uids on host-shared filesystems if anyone ever
@@ -44,6 +51,11 @@ ENV PYTHONUNBUFFERED=1 \
 RUN groupadd -r app && useradd -r -g app -u 1001 -m -d /home/app app
 
 COPY --from=builder /install /usr/local
+
+# Bake the corpus manifest at a stable runtime path so POST /ingest can
+# locate it without any operator-side configuration. INGEST_MANIFEST_PATH
+# (set above) feeds rag_on_azure.settings.Settings.ingest_manifest_path.
+COPY ingest/corpus_manifest.yaml /opt/rag-on-azure/corpus_manifest.yaml
 
 USER app
 WORKDIR /home/app

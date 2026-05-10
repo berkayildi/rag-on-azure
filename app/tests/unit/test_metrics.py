@@ -17,6 +17,9 @@ from rag_on_azure.api.routes import metrics
 from rag_on_azure.metrics import (
     GENERATION_ERRORS,
     GENERATION_LATENCY,
+    INGEST_CHUNKS_INDEXED_TOTAL,
+    INGEST_DURATION_SECONDS,
+    INGEST_RUNS_TOTAL,
     QUERIES_TOTAL,
     RETRIEVAL_ERRORS,
     RETRIEVAL_LATENCY,
@@ -135,6 +138,44 @@ async def test_metrics_route_returns_prometheus_exposition() -> None:
     assert "total_request_seconds" in body
     assert "retrieval_errors_total" in body
     assert "generation_errors_total" in body
+
+
+def test_ingest_runs_total_distinguishes_status_labels() -> None:
+    """Three terminal statuses are tracked: success, error, conflict."""
+    deltas: dict[str, float] = {}
+    for status in ("success", "error", "conflict"):
+        before = _counter_value(INGEST_RUNS_TOTAL, status=status)
+        INGEST_RUNS_TOTAL.labels(status=status).inc()
+        deltas[status] = _counter_value(INGEST_RUNS_TOTAL, status=status) - before
+    assert deltas == {
+        "success": pytest.approx(1.0),
+        "error": pytest.approx(1.0),
+        "conflict": pytest.approx(1.0),
+    }
+
+
+def test_ingest_duration_observation_recorded() -> None:
+    before = _histogram_total_count(INGEST_DURATION_SECONDS)
+    INGEST_DURATION_SECONDS.observe(180.0)  # 3 minutes; mid-bucket
+    after = _histogram_total_count(INGEST_DURATION_SECONDS)
+    assert after - before == pytest.approx(1.0)
+
+
+def test_ingest_duration_buckets_are_minutes_scale() -> None:
+    """Sanity: ingest histogram buckets cover seconds-to-half-hour, not
+    the request-scale buckets."""
+    buckets = [b for b in INGEST_DURATION_SECONDS._upper_bounds if b != float("inf")]
+    assert buckets == [10, 60, 300, 600, 1800]
+
+
+def test_ingest_chunks_indexed_total_increments_by_count() -> None:
+    """``Counter.inc(n)`` should add `n`, not 1, so the route can pass the
+    pipeline's ``uploaded`` count straight in."""
+    metric = INGEST_CHUNKS_INDEXED_TOTAL
+    before = float(metric._value.get())
+    metric.inc(42)
+    after = float(metric._value.get())
+    assert after - before == pytest.approx(42.0)
 
 
 def test_default_registry_exposes_process_collectors() -> None:
