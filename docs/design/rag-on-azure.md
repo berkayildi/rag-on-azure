@@ -28,9 +28,8 @@ Before any code is written, the Azure subscription must be in a usable state.
 rag-on-azure/
 ├── .github/
 │   └── workflows/
-│       ├── ci.yml                    # primary CI (includes eval-gate stage)
+│       ├── ci.yml                    # primary CI (includes eval-gate + publish-benchmarks)
 │       └── release-please.yml        # Release Please automation
-├── azure-pipelines.yml               # Azure Pipelines mirror
 ├── release-please-config.json
 ├── .release-please-manifest.json
 ├── infra/
@@ -297,9 +296,19 @@ Stages:
 
 Auth: GitHub OIDC federation to Azure AD. No long-lived service principal secret in repo settings.
 
-### 6.2 Mirror: Azure Pipelines (`azure-pipelines.yml`)
+### 6.2 Azure Pipelines mirror — roadmap, not v1
 
-Same stages, Azure Pipelines idioms (`stages → jobs → steps`, `AzureCLI@2` task, `azd` install step). Provided for users running this stack inside Azure DevOps environments. Wired against a separate Azure DevOps org if available; otherwise the YAML stands alone as a reference.
+The original v1.0 spec called for an `azure-pipelines.yml` mirror of the GitHub Actions pipeline so an Azure DevOps shop could run this stack without porting CI themselves. **That mirror is deferred to the post-v1 roadmap.**
+
+Reasoning:
+
+- The GitHub Actions pipeline grew through Day 7 to 10 jobs and ~350 lines: lint → gitleaks → bicep-validate → unit → integration → build → bicep-whatif → deploy → eval-gate → publish-benchmarks. Full OIDC federation, eval calibration, cross-repo App-token push.
+- A faithful Azure Pipelines port is a meaningful piece of work: rewriting OIDC steps as `AzureCLI@2` with workload identity federation, recreating the cross-repo App-token mint, mapping `actions/create-github-app-token@v1` to a comparable Azure DevOps service connection.
+- A *partial* mirror (just lint + test) would be worse than no mirror — it would imply the canonical CI lives elsewhere and raise uncomfortable questions about why the deploy/eval/publish stages are missing.
+
+For an Azure DevOps shop forking this repo today, the honest path is: lift the Bicep templates and the pipeline structure, port to Azure Pipelines syntax against your own Azure DevOps service connection. The shape is documented enough in §6.1 that the port is mechanical.
+
+A full mirror lands in a future v0.x release once the GitHub Actions pipeline stabilises. Tracking issue: https://github.com/berkayildi/rag-on-azure/issues (file when scheduled).
 
 ### 6.3 Eval gate config (`eval/.eval-gate.yml`)
 
@@ -560,7 +569,7 @@ Operator setup for the owner's fork:
 5. LangGraph nodes + FastAPI surface (§3); first end-to-end live query
 6. JWT auth + tenant isolation tests (§5.3); deploy app image
 7. GitHub Actions CI (§6.1) including OIDC federation, eval gate, and the cross-repo push to `llm-benchmarks` (§13.1)
-8. Azure Pipelines mirror (§6.2); polish docs (architecture, security, deployment)
+8. Polish docs (architecture, security, deployment); AGENTS.md cleanup. (Azure Pipelines mirror deferred — see §6.2.)
 9. README pass, screenshots, CHANGELOG, tag v0.1.0
 
 Each step generates one or more PRs. CI must be green before merging.
