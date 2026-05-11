@@ -175,33 +175,44 @@ unchanged chunks).
 
 ## Step 8 — Verify the deployed app
 
+The canonical post-deploy check is a single `make` target that chains
+`/healthz` → `/readyz` → a signed `/query` against the FCA Consumer
+Duty sample question:
+
 ```bash
+make smoke
+```
+
+The `smoke` target reads three variables (override on the command
+line as needed):
+
+- `FQDN` — the Container App FQDN, defaults to the `dev` environment.
+  Pull a fresh value with `make outputs | grep containerAppFqdn` if
+  you've redeployed under a different `azd env`.
+- `SIGNING_KEY` — path to the RSA private PEM used to mint the dev
+  JWT, defaults to `scripts/dev-keys/jwt-signing.private.pem`. The
+  matching public PEM must be the current value of the
+  `jwt-signing-key` Key Vault secret (step 5).
+- `TENANT` — tenant claim baked into the minted token, defaults to
+  `demo`.
+
+```bash
+# Against a non-default FQDN:
+make smoke FQDN=rag-prod-ca.example.azurecontainerapps.io
+
+# Individual steps for debugging (composable):
+make smoke-healthz
+make smoke-readyz
+make smoke-token       # prints the JWT, useful for ad-hoc curl
+make smoke-query
+
+# Metrics (public, not part of the smoke chain):
 FQDN=$(make outputs | grep containerAppFqdn | awk '{print $2}')
-
-# Healthz, no auth
-curl -s "https://${FQDN}/healthz"
-# {"status":"ok"}
-
-# Readyz, no auth
-curl -s "https://${FQDN}/readyz"
-# {"status":"ready","checks":{"openai":"ok","search":"ok","key_vault":"ok"}}
-
-# Mint a dev tenant token (RS256 against the local private PEM)
-TOKEN=$(python scripts/mint-token.py demo)
-
-# Real query
-curl -s "https://${FQDN}/query" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"question":"What does PS26/3 say about commission disclosure?","top_k":5}' \
-  | jq .
-
-# Metrics (public)
 curl -s "https://${FQDN}/metrics" | head -20
 ```
 
-If `/query` returns a grounded answer with citations, the stack is
-live.
+If `smoke-query` returns a grounded answer with citations, the stack
+is live.
 
 ## Step 9 — Bootstrap CI (OIDC federation)
 

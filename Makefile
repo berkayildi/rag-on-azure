@@ -1,8 +1,12 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help init fmt validate plan apply deploy up down outputs logs test lint precommit clean ingest docker-build docker-run docker-smoke
+.PHONY: help init fmt validate plan apply deploy up down outputs logs test lint precommit clean ingest docker-build docker-run docker-smoke smoke smoke-healthz smoke-readyz smoke-token smoke-query
 
 BICEP_FILES := $(shell find infra -name '*.bicep' -type f 2>/dev/null)
+
+FQDN ?= rag-dev-ca.ashybay-7602179f.swedencentral.azurecontainerapps.io
+SIGNING_KEY ?= scripts/dev-keys/jwt-signing.private.pem
+TENANT ?= demo
 
 help: ## Print available targets and descriptions
 	@awk 'BEGIN {FS = ":.*## "; printf "Usage:\n  make <target>\n\nTargets:\n"} \
@@ -118,3 +122,26 @@ docker-smoke: docker-build ## Build + run + curl /healthz + stop (Phase E smoke 
 		docker stop rag-on-azure-local >/dev/null 2>&1 || true; \
 		if [ $$STATUS -eq 0 ]; then echo "==> docker-smoke OK"; else echo "==> docker-smoke FAILED ($$STATUS)"; fi; \
 		exit $$STATUS
+
+smoke-healthz: ## Live: GET https://$(FQDN)/healthz
+	@echo "==> GET https://$(FQDN)/healthz"
+	@curl -fsS "https://$(FQDN)/healthz" | python -m json.tool
+
+smoke-readyz: ## Live: GET https://$(FQDN)/readyz
+	@echo "==> GET https://$(FQDN)/readyz"
+	@curl -fsS "https://$(FQDN)/readyz" | python -m json.tool
+
+smoke-token: ## Live: mint and print an RS256 dev JWT
+	@python scripts/mint-token.py --tenant-id $(TENANT) --signing-key-path $(SIGNING_KEY)
+
+smoke-query: ## Live: POST https://$(FQDN)/query with the FCA Consumer Duty sample question
+	@echo "==> POST https://$(FQDN)/query"
+	@TOKEN=$$(python scripts/mint-token.py --tenant-id $(TENANT) --signing-key-path $(SIGNING_KEY)) && \
+		curl -fsS "https://$(FQDN)/query" \
+			-H "Authorization: Bearer $$TOKEN" \
+			-H "Content-Type: application/json" \
+			-d '{"question":"Across which sectors of financial services does the Consumer Duty apply, according to FG22/5?","top_k":5}' \
+			| python -m json.tool
+
+smoke: smoke-healthz smoke-readyz smoke-query ## Live smoke chain: healthz -> readyz -> query (post-deploy verification)
+	@echo "==> smoke OK"
