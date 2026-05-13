@@ -303,7 +303,7 @@ jobs:
     steps:
       - name: Mint GitHub App install token (scoped to llm-benchmarks)
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.LLMSHOT_APP_ID }}
           private-key: ${{ secrets.LLMSHOT_APP_PRIVATE_KEY }}
