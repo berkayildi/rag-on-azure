@@ -153,7 +153,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -187,7 +187,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -235,7 +235,7 @@ jobs:
           pip install -e ./app
           pip install 'mcp-llm-eval==0.9.2'
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
