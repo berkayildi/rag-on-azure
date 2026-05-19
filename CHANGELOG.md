@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/berkayildi/rag-on-azure/compare/v0.1.0...v0.2.0) (2026-05-19)
+
+
+### Features
+
+* **ci:** gate Azure-touching jobs on AZURE_DEPLOYED toggle ([de98ca7](https://github.com/berkayildi/rag-on-azure/commit/de98ca70cb7c54daaa774e24f1a03652e58d3ac8))
+
+
+### Documentation
+
+* **readme:** surface make smoke in live demo and quick start ([3d244df](https://github.com/berkayildi/rag-on-azure/commit/3d244dfe311a5ab576bc839246abb639b7492bac))
+
 ## [0.1.0](https://github.com/berkayildi/rag-on-azure/compare/v0.0.1...v0.1.0) (2026-05-10)
 
 
