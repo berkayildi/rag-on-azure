@@ -147,6 +147,10 @@ jobs:
     name: Bicep what-if (dev RG)
     runs-on: ubuntu-latest
     needs: [build]
+    # Gated on AZURE_DEPLOYED — when the dev RG is torn down (make down)
+    # the variable is flipped to "false" and this Azure-touching job
+    # skips cleanly. Set back to "true" before `make apply` to re-enable.
+    if: vars.AZURE_DEPLOYED == 'true'
     permissions:
       contents: read
       id-token: write
@@ -180,7 +184,7 @@ jobs:
     name: Deploy to dev
     runs-on: ubuntu-latest
     needs: [build, bicep-whatif]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AZURE_DEPLOYED == 'true'
     permissions:
       contents: read
       id-token: write
@@ -217,7 +221,7 @@ jobs:
     needs: [deploy]
     # Same trigger gate as deploy — the eval-gate snapshots the live dev
     # index, which only exists after deploy and only updates on main.
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AZURE_DEPLOYED == 'true'
     permissions:
       contents: read
       id-token: write
@@ -297,6 +301,7 @@ jobs:
       github.ref == 'refs/heads/main'
       && github.event_name != 'pull_request'
       && vars.LLMSHOT_PUSH_ENABLED == 'true'
+      && vars.AZURE_DEPLOYED == 'true'
     continue-on-error: true
     permissions:
       contents: read

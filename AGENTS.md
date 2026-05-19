@@ -211,6 +211,17 @@ The current `corpus_manifest.yaml` produces ~931 chunks. A cold-cache ingest emb
 
 **Permanent fix queued:** none. The cost is the work; idempotency already minimises it.
 
+### `AZURE_DEPLOYED` repo variable gates the four Azure-touching CI jobs
+
+Four jobs in `ci.yml` — `bicep-whatif`, `deploy`, `eval-gate`, `publish-benchmarks` — assume a live dev RG with an AI Search service, Container App, and OIDC-federated AAD app reachable. When the RG is torn down (`make down`), every push to `main` would otherwise re-fire those jobs and fail noisily on Azure CLI calls into a non-existent RG. The `AZURE_DEPLOYED` repo variable is the toggle that mutes them.
+
+**Operating discipline:**
+
+- **After `make down`:** flip the variable to `false` so subsequent pushes skip Azure work cleanly. `gh variable set AZURE_DEPLOYED --body "false"`. Pushes still run the six platform-agnostic jobs (lint, gitleaks, bicep-validate, unit-tests, integration-tests, build) for normal change-safety signal; the four Azure jobs report **skipped** rather than failed.
+- **Before `make apply`:** flip back to `true` so the next push exercises the full pipeline. `gh variable set AZURE_DEPLOYED --body "true"`.
+
+The gate is appended to each Azure-touching job's existing `if:` condition; the prior gates (`github.ref == 'refs/heads/main'`, `vars.LLMSHOT_PUSH_ENABLED == 'true'`) still apply.
+
 ## Code conventions
 
 - **Python 3.12**, type-hinted, `mypy --strict` clean
