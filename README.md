@@ -6,6 +6,14 @@ A production-shaped Retrieval-Augmented Generation application on Microsoft Azur
 
 The deployed dev stack runs at `https://rag-dev-ca.ashybay-7602179f.swedencentral.azurecontainerapps.io`. Auth-free probes are public; `/query` requires a JWT minted via [`scripts/mint-token.py`](scripts/mint-token.py).
 
+**Quickest verification** — chains healthz → readyz → signed `/query` against the live stack:
+
+```bash
+make smoke
+```
+
+Or step-by-step:
+
 ```bash
 FQDN="https://rag-dev-ca.ashybay-7602179f.swedencentral.azurecontainerapps.io"
 
@@ -88,7 +96,8 @@ git clone git@github.com:berkayildi/rag-on-azure.git && cd rag-on-azure
 az login                                            # tenant + sub the dev RG lives in
 make plan                                           # az deployment group what-if; read-only
 make apply                                          # azd provision; ~3 min for a fresh RG
-cd ingest && python -m ingest all                   # seed the corpus into AI Search
+cd ingest && python -m ingest all && cd ..          # seed the corpus into AI Search
+make smoke                                          # verify end-to-end (healthz + readyz + signed /query)
 ```
 
 That's the five-line summary. The real day-1 runbook (twelve steps including OIDC bootstrap, JWT key plumbing, eval-gate operator setup, and llm-benchmarks GitHub App provisioning) lives in [`docs/deployment.md`](docs/deployment.md).
